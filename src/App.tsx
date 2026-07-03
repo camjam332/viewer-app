@@ -1,13 +1,12 @@
 import { Canvas } from "@react-three/fiber";
 import { Model } from "./components/Model";
 import { Bounds, Html, OrbitControls, Environment } from "@react-three/drei";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { Loader } from "./components/Loader";
 import { ErrorBoundary } from "react-error-boundary";
 
 function App() {
   const url = "/models/triceratops_skull.glb";
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   return (
     <>
@@ -23,21 +22,18 @@ function App() {
         camera={{ position: [0, 0, 10] }}
       >
         <OrbitControls makeDefault enableDamping />
-        <ambientLight />
-        <directionalLight />
-        <Environment background preset="city" />
         <ErrorBoundary
-          fallback={
-            <Html>
-              <h1>{errorMessage}</h1>
+          fallbackRender={({ error }) => (
+            <Html center>
+              <h1>Failed to load model: {(error as Error).message}</h1>
             </Html>
-          }
-          onError={(error) => setErrorMessage((error as Error).message)}
+          )}
         >
           <Suspense fallback={<Loader />}>
             <Bounds fit clip observe>
               <Model url={url} />
             </Bounds>
+            <Environment background preset="city" />
           </Suspense>
         </ErrorBoundary>
       </Canvas>
