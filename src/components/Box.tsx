@@ -5,7 +5,7 @@ import { Mesh } from "three";
 export const Box = () => {
   const meshRef = useRef<Mesh | null>(null);
 
-  useFrame((state, delta) => {
+  useFrame((_state, delta) => {
     if (meshRef.current) meshRef.current.rotation.y += delta;
   });
 
