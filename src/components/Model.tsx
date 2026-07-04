@@ -9,11 +9,19 @@ type ModelParams = {
 export const Model = ({ url }: ModelParams) => {
   const { scene } = useGLTF(url);
   const addPoint = useViewer((s) => s.addPoint);
+  const addAnnotation = useViewer((s) => s.addAnnotation);
+  const tool = useViewer((s) => s.tool);
 
   const clickHandler = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
     const point = e.point.clone();
-    addPoint(point);
+    if (tool === "measure") {
+      addPoint(point);
+    }
+    if (tool === "annotate") {
+      const position: [number, number, number] = [point.x, point.y, point.z];
+      addAnnotation(position);
+    }
   };
 
   return (
