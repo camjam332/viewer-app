@@ -1,18 +1,45 @@
 import { Canvas } from "@react-three/fiber";
 import { Model } from "./components/Model";
 import { Bounds, Html, OrbitControls, Environment } from "@react-three/drei";
-import { Suspense, useState } from "react";
+import { Suspense } from "react";
 import { Loader } from "./components/Loader";
 import { ErrorBoundary } from "react-error-boundary";
-import type { Vector3 } from "three";
+import { useViewer } from "./state/state";
+import { Measurement } from "./components/Measurement";
 
 function App() {
+  const points = useViewer((s) => s.points);
+  const clearPoints = useViewer((s) => s.clearPoints);
   const url = "/models/triceratops_skull.glb";
-  const [points, setPoints] = useState<Vector3[]>([]);
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
   return (
     <>
+      {points.length > 0 && (
+        <div
+          style={{
+            position: "fixed",
+            top: 16,
+            right: 16,
+            zIndex: 1,
+          }}
+        >
+          <button onClick={clearPoints}>Clear Points</button>
+        </div>
+      )}
+      {distance !== null && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            zIndex: 1,
+            color: "black",
+          }}
+        >
+          <h1>Distance: {distance.toFixed(2) + "m"}</h1>
+        </div>
+      )}
       <Canvas
         style={{
           position: "fixed",
@@ -34,25 +61,13 @@ function App() {
         >
           <Suspense fallback={<Loader />}>
             <Bounds fit clip observe>
-              <Model url={url} points={points} setPoints={setPoints} />
+              <Model url={url} />
+              <Measurement />
             </Bounds>
             <Environment preset="city" />
           </Suspense>
         </ErrorBoundary>
       </Canvas>
-      {distance !== null && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            color: "black",
-            pointerEvents: "none",
-          }}
-        >
-          <h1>Distance: {distance.toFixed(2)}</h1>
-        </div>
-      )}
     </>
   );
 }
