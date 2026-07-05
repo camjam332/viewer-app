@@ -21,11 +21,11 @@ export const Sidebar = () => {
         return (
           <div key={a.id}>
             <p
-              style={{
-                cursor: "pointer",
-                background: selectedId === a.id ? "red" : "blue",
-                color: "white",
-              }}
+              className={`cursor-pointer px-3 py-2 rounded ${
+                selectedId === a.id
+                  ? "bg-blue-600"
+                  : "bg-white/10 hover:bg-white/20"
+              }`}
               onClick={() => setSelectedId(a.id)}
             >
               {a.title}
@@ -35,6 +35,7 @@ export const Sidebar = () => {
                 <label>
                   Title
                   <input
+                    className="w-full rounded bg-white/10 px-2 py-1 text-white mt-1"
                     value={selected.title}
                     onChange={(e) =>
                       updateAnnotation(selected.id, { title: e.target.value })
@@ -42,10 +43,10 @@ export const Sidebar = () => {
                     type="text"
                   />
                 </label>
-                <br />
                 <label>
                   Note
                   <input
+                    className="w-full rounded bg-white/10 px-2 py-1 text-white mt-1"
                     value={selected.note}
                     onChange={(e) =>
                       updateAnnotation(selected.id, { note: e.target.value })
@@ -53,12 +54,17 @@ export const Sidebar = () => {
                     type="text"
                   />
                 </label>
-                <br />
-                <button onClick={() => removeAnnotation(selected.id)}>
-                  Delete Annotation
+                <button
+                  className="rounded bg-red-600 px-3 py-1 mt-2 mr-2"
+                  onClick={() => removeAnnotation(selected.id)}
+                >
+                  Delete
                 </button>
-                <button onClick={() => setFocusedId(selected.id)}>
-                  Focus Annotation
+                <button
+                  className="rounded bg-blue-600 px-3 py-1 mt-2"
+                  onClick={() => setFocusedId(selected.id)}
+                >
+                  Focus
                 </button>
               </div>
             )}

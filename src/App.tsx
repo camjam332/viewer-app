@@ -1,6 +1,6 @@
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas } from "@react-three/fiber";
 import { Model } from "./components/Model";
-import { Html, Environment, CameraControls } from "@react-three/drei";
+import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
 import { Suspense, useEffect, useRef, type RefObject } from "react";
 import { Loader } from "./components/Loader";
 import { ErrorBoundary } from "react-error-boundary";
@@ -9,7 +9,7 @@ import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import type { Annotation, Tool } from "./state/state";
-import { Box3 } from "three";
+import { Box3, type Group } from "three";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -27,7 +27,7 @@ const CameraFocus = ({
     if (focused) {
       const dist = 3;
       const [px, py, pz] = focused.position;
-      const [nx, ny, nz] = focused.normal;
+      const [nx, ny, nz] = focused.normal ?? [0, 0, 1];
       const camX = px + nx * dist;
       const camY = py + ny * dist;
       const camZ = pz + nz * dist;
@@ -49,13 +49,18 @@ const CameraFocus = ({
 
 function FrameOnLoad({
   controlsRef,
+  modelRef,
 }: {
   controlsRef: RefObject<CameraControls | null>;
+  modelRef: RefObject<Group | null>;
 }) {
-  const { scene } = useThree();
   useEffect(() => {
-    if (!controlsRef.current) return;
-    const box = new Box3().setFromObject(scene);
+    if (!controlsRef.current || !modelRef.current) return;
+    const box = new Box3().setFromObject(modelRef.current);
+    const offset = -box.min.y;
+    modelRef.current.position.y += offset;
+    box.min.y += offset;
+    box.max.y += offset;
     controlsRef.current.fitToBox(box, true); // frame instantly on load
     controlsRef.current.saveState(); // remember this pose so reset() can restore it later
   }, []);
@@ -71,24 +76,45 @@ function App() {
   const clearPoints = useViewer((s) => s.clearPoints);
 
   const cameraControlsRef = useRef<CameraControls | null>(null);
+  const modelRef = useRef<Group | null>(null);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const url = "/models/triceratops_skull.glb";
+
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
   return (
     <>
       <div
         className="fixed top-4 left-1/2 -translate-x-1/2 z-10
-                flex gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+                flex items-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
                 md:left-4 md:translate-x-0"
       >
-        <select onChange={(e) => setTool(e.target.value as Tool)}>
-          <option value="orbit">Orbit</option>
-          <option value="measure">Measure</option>
-          <option value="annotate">Annotate</option>
+        <select
+          className="rounded text-black px-2 py-1"
+          onChange={(e) => setTool(e.target.value as Tool)}
+        >
+          <option
+            className="rounded bg-black/70 text-black px-2 py-1"
+            value="orbit"
+          >
+            Orbit
+          </option>
+          <option
+            className="rounded bg-black/70 text-black px-2 py-1"
+            value="measure"
+          >
+            Measure
+          </option>
+          <option
+            className="rounded bg-black/70 text-black px-2 py-1"
+            value="annotate"
+          >
+            Annotate
+          </option>
         </select>
         <button
+          className="rounded bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
             setFocusedId(null);
           }}
@@ -96,16 +122,17 @@ function App() {
           Reset Camera
         </button>
         {points.length > 0 && (
-          <div>
-            <button onClick={clearPoints}>Clear Points</button>
-          </div>
+          <button
+            className="rounded bg-white/10 hover:bg-white/20 px-3 py-1"
+            onClick={clearPoints}
+          >
+            Clear Points
+          </button>
         )}
         {distance !== null && (
-          <div>
-            <h1 className="bg-black/70 text-white px-3 rounded">
-              Distance: {distance.toFixed(2) + "m"}
-            </h1>
-          </div>
+          <p className="bg-black/70 text-white px-3 rounded">
+            Distance: {distance.toFixed(2) + "m"}
+          </p>
         )}
       </div>
       <Sidebar />
@@ -129,8 +156,8 @@ function App() {
           )}
         >
           <Suspense fallback={<Loader />}>
-            <Model url={url} />
-            <FrameOnLoad controlsRef={cameraControlsRef} />
+            <Model ref={modelRef} url={url} />
+            <FrameOnLoad controlsRef={cameraControlsRef} modelRef={modelRef} />
             <CameraFocus
               cameraControlsRef={cameraControlsRef}
               focused={focused}
@@ -141,6 +168,7 @@ function App() {
             <Environment preset="city" />
           </Suspense>
         </ErrorBoundary>
+        <Grid infiniteGrid fadeDistance={20} />
       </Canvas>
     </>
   );

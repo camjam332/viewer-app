@@ -1,16 +1,21 @@
-import { useGLTF } from "@react-three/drei";
+import { useGLTF, useHelper } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import type { Ref } from "react";
+import { BoxHelper, Object3D, type Group } from "three";
 import { useViewer } from "../state/state";
 
 type ModelParams = {
+  ref: Ref<Group> | null;
   url: string;
 };
 
-export const Model = ({ url }: ModelParams) => {
+export const Model = ({ ref, url }: ModelParams) => {
   const { scene } = useGLTF(url);
   const addPoint = useViewer((s) => s.addPoint);
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const tool = useViewer((s) => s.tool);
+
+  useHelper(ref as React.RefObject<Object3D>, BoxHelper, "cyan");
 
   const clickHandler = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();
@@ -31,7 +36,7 @@ export const Model = ({ url }: ModelParams) => {
 
   return (
     <>
-      <primitive onClick={clickHandler} object={scene} />
+      <primitive ref={ref} onClick={clickHandler} object={scene} />
     </>
   );
 };
