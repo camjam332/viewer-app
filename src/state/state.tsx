@@ -45,11 +45,12 @@ export const useViewer = create<ViewerState>()(
       annotations: [],
       addAnnotation: (position, normal) =>
         set((s) => {
+          const genId = crypto.randomUUID().toString();
           const annotation = {
-            id: crypto.randomUUID().toString(),
+            id: genId,
             position,
             normal,
-            title: `New Annotation ${s.annotations.length + 1}`,
+            title: `New Annotation ${genId.slice(0, 4)}`,
             note: "",
           };
           return {

@@ -12,15 +12,12 @@ export const Annotations = () => {
         return (
           <Fragment key={a.id}>
             <Html
-              center
               position={a.position}
-              style={{
-                background: selectedId === a.id ? "red" : "blue",
-                color: "white",
-                transform: "translate(-50%, -125%)",
-              }}
+              className={`text-white rounded-xl !-translate-x-1/2 !-translate-y-[125%] ${
+                selectedId === a.id ? "bg-[red]" : "bg-[blue]"
+              }`}
             >
-              <p>{a.title}</p>
+              <p className="p-2">{a.title}</p>
             </Html>
             <mesh
               onClick={(e) => {

@@ -91,30 +91,30 @@ function App() {
                 md:left-4 md:translate-x-0"
       >
         <select
-          className="rounded text-black px-2 py-1"
+          className="rounded text-white bg-white/10 px-3 py-1"
           onChange={(e) => setTool(e.target.value as Tool)}
         >
           <option
-            className="rounded bg-black/70 text-black px-2 py-1"
+            className="rounded bg-black/70 text-white px-2 py-1"
             value="orbit"
           >
             Orbit
           </option>
           <option
-            className="rounded bg-black/70 text-black px-2 py-1"
+            className="rounded bg-black/70 text-white px-2 py-1"
             value="measure"
           >
             Measure
           </option>
           <option
-            className="rounded bg-black/70 text-black px-2 py-1"
+            className="rounded bg-black/70 text-white px-2 py-1"
             value="annotate"
           >
             Annotate
           </option>
         </select>
         <button
-          className="rounded bg-white/10 hover:bg-white/20 px-3 py-1"
+          className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
             setFocusedId(null);
           }}
@@ -123,14 +123,14 @@ function App() {
         </button>
         {points.length > 0 && (
           <button
-            className="rounded bg-white/10 hover:bg-white/20 px-3 py-1"
+            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
             onClick={clearPoints}
           >
             Clear Points
           </button>
         )}
         {distance !== null && (
-          <p className="bg-black/70 text-white px-3 rounded">
+          <p className="rounded text-white px-3 py-1">
             Distance: {distance.toFixed(2) + "m"}
           </p>
         )}
