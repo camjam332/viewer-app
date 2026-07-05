@@ -1,6 +1,7 @@
 import { Fragment } from "react";
 import { useViewer } from "../state/state";
 import { Html } from "@react-three/drei";
+import { MapPin } from "lucide-react";
 
 export const Annotations = () => {
   const annotations = useViewer((s) => s.annotations);
@@ -13,11 +14,24 @@ export const Annotations = () => {
           <Fragment key={a.id}>
             <Html
               position={a.position}
-              className={`text-white rounded-xl !-translate-x-1/2 !-translate-y-[125%] ${
-                selectedId === a.id ? "bg-[red]" : "bg-[blue]"
+              className={`relative rounded-xl !-translate-x-1/2 !-translate-y-[150%] text-white ${
+                selectedId === a.id ? "bg-blue-600" : "bg-black"
               }`}
             >
-              <p className="p-2">{a.title}</p>
+              <p
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSelectedId(a.id);
+                }}
+                className="whitespace-nowrap p-2"
+              >
+                <MapPin />
+              </p>
+              <div
+                className={`absolute left-1/2 top-full -mt-1 h-2 w-2 -translate-x-1/2 rotate-45 ${
+                  selectedId === a.id ? "bg-blue-600" : "bg-black"
+                }`}
+              />
             </Html>
             <mesh
               onClick={(e) => {
@@ -28,7 +42,9 @@ export const Annotations = () => {
               position={a.position}
             >
               <boxGeometry />
-              <meshBasicMaterial color={selectedId === a.id ? "red" : "blue"} />
+              <meshBasicMaterial
+                color={selectedId === a.id ? "blue" : "black"}
+              />
             </mesh>
           </Fragment>
         );
