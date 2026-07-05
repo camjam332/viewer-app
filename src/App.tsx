@@ -16,11 +16,12 @@ function FrameOnLoad({
 }: {
   controlsRef: RefObject<CameraControls | null>;
 }) {
-  const { scene } = useThree(); // or pass the model's object
+  const { scene } = useThree();
   useEffect(() => {
     if (!controlsRef.current) return;
     const box = new Box3().setFromObject(scene);
-    controlsRef.current.fitToBox(box, true); // frame the whole model, animated
+    controlsRef.current.fitToBox(box, false); // frame instantly on load
+    controlsRef.current.saveState(); // remember this pose so reset() can restore it later
   }, []);
   return null;
 }
@@ -31,10 +32,10 @@ function App() {
   const setTool = useViewer((s) => s.setTool);
   const selectedId = useViewer((s) => s.selectedId);
   const clearPoints = useViewer((s) => s.clearPoints);
+
   const cameraControlsRef = useRef<CameraControls | null>(null);
 
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
-
   const url = "/models/triceratops_skull.glb";
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
@@ -73,6 +74,9 @@ function App() {
           <option value="measure">Measure</option>
           <option value="annotate">Annotate</option>
         </select>
+        <button onClick={() => cameraControlsRef.current?.reset(true)}>
+          Reset Camera
+        </button>
       </div>
       {points.length > 0 && (
         <div
