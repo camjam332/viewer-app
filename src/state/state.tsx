@@ -7,6 +7,7 @@ export type Tool = "orbit" | "measure" | "annotate";
 export type Annotation = {
   id: string;
   position: [number, number, number];
+  normal: [number, number, number] | null;
   title: string;
   note: string;
 };
@@ -20,7 +21,10 @@ type ViewerState = {
   tool: Tool;
   setTool: (t: Tool) => void;
   annotations: Annotation[];
-  addAnnotation: (p: [number, number, number]) => void;
+  addAnnotation: (
+    p: [number, number, number],
+    n: [number, number, number] | null,
+  ) => void;
   updateAnnotation: (id: string, patch: Partial<Annotation>) => void;
   removeAnnotation: (id: string) => void;
 };
@@ -37,11 +41,12 @@ export const useViewer = create<ViewerState>()(
       tool: "orbit",
       setTool: (t) => set({ tool: t }),
       annotations: [],
-      addAnnotation: (position) =>
+      addAnnotation: (position, normal) =>
         set((s) => {
           const annotation = {
             id: crypto.randomUUID().toString(),
             position,
+            normal,
             title: `New Annotation ${s.annotations.length + 1}`,
             note: "",
           };
