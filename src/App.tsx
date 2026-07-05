@@ -8,8 +8,44 @@ import { useViewer } from "./state/state";
 import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
-import type { Tool } from "./state/state";
+import type { Annotation, Tool } from "./state/state";
 import { Box3 } from "three";
+
+type CameraFocusParams = {
+  cameraControlsRef: RefObject<CameraControls | null>;
+  focused: Annotation | null;
+  focusedId: string | null;
+};
+
+const CameraFocus = ({
+  cameraControlsRef,
+  focused,
+  focusedId,
+}: CameraFocusParams) => {
+  useEffect(() => {
+    if (!cameraControlsRef.current) return;
+    if (focused) {
+      const dist = 3;
+      const [px, py, pz] = focused.position;
+      const [nx, ny, nz] = focused.normal;
+      const camX = px + nx * dist;
+      const camY = py + ny * dist;
+      const camZ = pz + nz * dist;
+      cameraControlsRef.current.setLookAt(
+        camX,
+        camY,
+        camZ, // where the camera moves TO
+        px,
+        py,
+        pz, // what it looks AT (the annotation point)
+        true, // enableTransition = smooth animated move
+      );
+    } else {
+      cameraControlsRef.current.reset(true);
+    }
+  }, [focusedId]);
+  return null;
+};
 
 function FrameOnLoad({
   controlsRef,
@@ -40,38 +76,12 @@ function App() {
   const url = "/models/triceratops_skull.glb";
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
-  useEffect(() => {
-    if (!cameraControlsRef.current) return;
-    if (focused) {
-      const dist = 3;
-      const [px, py, pz] = focused.position;
-      const [nx, ny, nz] = focused.normal;
-      const camX = px + nx * dist;
-      const camY = py + ny * dist;
-      const camZ = pz + nz * dist;
-      cameraControlsRef.current.setLookAt(
-        camX,
-        camY,
-        camZ, // where the camera moves TO
-        px,
-        py,
-        pz, // what it looks AT (the annotation point)
-        true, // enableTransition = smooth animated move
-      );
-    } else {
-      cameraControlsRef.current.reset(true);
-    }
-  }, [focusedId]);
-
   return (
     <>
       <div
-        style={{
-          position: "fixed",
-          top: 64,
-          right: 16,
-          zIndex: 1,
-        }}
+        className="fixed top-4 left-1/2 -translate-x-1/2 z-10
+                flex gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+                md:left-4 md:translate-x-0"
       >
         <select onChange={(e) => setTool(e.target.value as Tool)}>
           <option value="orbit">Orbit</option>
@@ -85,32 +95,19 @@ function App() {
         >
           Reset Camera
         </button>
+        {points.length > 0 && (
+          <div>
+            <button onClick={clearPoints}>Clear Points</button>
+          </div>
+        )}
+        {distance !== null && (
+          <div>
+            <h1 className="bg-black/70 text-white px-3 rounded">
+              Distance: {distance.toFixed(2) + "m"}
+            </h1>
+          </div>
+        )}
       </div>
-      {points.length > 0 && (
-        <div
-          style={{
-            position: "fixed",
-            top: 16,
-            right: 16,
-            zIndex: 1,
-          }}
-        >
-          <button onClick={clearPoints}>Clear Points</button>
-        </div>
-      )}
-      {distance !== null && (
-        <div
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            zIndex: 1,
-            color: "black",
-          }}
-        >
-          <h1>Distance: {distance.toFixed(2) + "m"}</h1>
-        </div>
-      )}
       <Sidebar />
       <Canvas
         style={{
@@ -134,6 +131,11 @@ function App() {
           <Suspense fallback={<Loader />}>
             <Model url={url} />
             <FrameOnLoad controlsRef={cameraControlsRef} />
+            <CameraFocus
+              cameraControlsRef={cameraControlsRef}
+              focused={focused}
+              focusedId={focusedId}
+            />
             <Measurement />
             <Annotations />
             <Environment preset="city" />

@@ -12,14 +12,11 @@ export const Sidebar = () => {
 
   return (
     <div
-      style={{
-        position: "fixed",
-        top: 128,
-        right: 16,
-        zIndex: 1,
-      }}
+      className="fixed z-10 bg-black/70 text-white backdrop-blur
+                bottom-0 left-0 right-0 max-h-[50vh] overflow-y-auto p-4
+                md:bottom-auto md:left-auto md:top-4 md:right-4 md:w-72 md:max-h-[80vh] md:rounded-lg"
     >
-      <h1>Annotations</h1>
+      <h1 className="bg-black/70 text-white px-3 rounded">Annotations</h1>
       {annotations.map((a) => {
         return (
           <div key={a.id}>
