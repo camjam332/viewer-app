@@ -7,7 +7,7 @@ export type Tool = "orbit" | "measure" | "annotate";
 export type Annotation = {
   id: string;
   position: [number, number, number];
-  normal: [number, number, number] | null;
+  normal: [number, number, number];
   title: string;
   note: string;
 };
@@ -25,7 +25,7 @@ type ViewerState = {
   annotations: Annotation[];
   addAnnotation: (
     p: [number, number, number],
-    n: [number, number, number] | null,
+    n: [number, number, number],
   ) => void;
   updateAnnotation: (id: string, patch: Partial<Annotation>) => void;
   removeAnnotation: (id: string) => void;

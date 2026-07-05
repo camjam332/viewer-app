@@ -19,7 +19,7 @@ export const Model = ({ url }: ModelParams) => {
       addPoint(point);
     }
     if (tool === "annotate") {
-      let normal: [number, number, number] | null = null;
+      let normal: [number, number, number] = [0, 0, 1];
       if (e.face && e.face.normal) {
         const normalVals = e.face.normal.clone();
         normal = [normalVals.x, normalVals.y, normalVals.z];
