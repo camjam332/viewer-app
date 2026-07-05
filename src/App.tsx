@@ -30,21 +30,21 @@ function App() {
   const points = useViewer((s) => s.points);
   const annotations = useViewer((s) => s.annotations);
   const setTool = useViewer((s) => s.setTool);
-  const selectedId = useViewer((s) => s.selectedId);
+  const focusedId = useViewer((s) => s.focusedId);
   const clearPoints = useViewer((s) => s.clearPoints);
 
   const cameraControlsRef = useRef<CameraControls | null>(null);
 
-  const selected = annotations.find((a) => a.id === selectedId) ?? null;
+  const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const url = "/models/triceratops_skull.glb";
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
   useEffect(() => {
-    if (!cameraControlsRef.current || !selected) return;
+    if (!cameraControlsRef.current || !focused) return;
 
     const dist = 3;
-    const [px, py, pz] = selected.position;
-    const [nx, ny, nz] = selected.normal ?? [0, 0, 1];
+    const [px, py, pz] = focused.position;
+    const [nx, ny, nz] = focused.normal ?? [0, 0, 1];
     const camX = px + nx * dist;
     const camY = py + ny * dist;
     const camZ = pz + nz * dist;
@@ -57,7 +57,7 @@ function App() {
       pz, // what it looks AT (the annotation point)
       true, // enableTransition = smooth animated move
     );
-  }, [selectedId]);
+  }, [focusedId]);
 
   return (
     <>

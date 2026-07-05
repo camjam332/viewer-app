@@ -13,6 +13,8 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  focusedId: string | null;
+  setFocusedId: (id: string | null) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   points: Vector3[];
@@ -68,6 +70,8 @@ export const useViewer = create<ViewerState>()(
         })),
       selectedId: null,
       setSelectedId: (id: string | null) => set({ selectedId: id }),
+      focusedId: null,
+      setFocusedId: (id: string | null) => set({ focusedId: id }),
     }),
     {
       name: "viewer-storage",

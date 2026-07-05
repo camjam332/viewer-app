@@ -5,6 +5,7 @@ export const Sidebar = () => {
   const setSelectedId = useViewer((s) => s.setSelectedId);
   const updateAnnotation = useViewer((s) => s.updateAnnotation);
   const removeAnnotation = useViewer((s) => s.removeAnnotation);
+  const setFocusedId = useViewer((s) => s.setFocusedId);
   const selectedId = useViewer((s) => s.selectedId);
 
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
@@ -58,6 +59,9 @@ export const Sidebar = () => {
                 <br />
                 <button onClick={() => removeAnnotation(selected.id)}>
                   Delete Annotation
+                </button>
+                <button onClick={() => setFocusedId(selected.id)}>
+                  Focus Annotation
                 </button>
               </div>
             )}
