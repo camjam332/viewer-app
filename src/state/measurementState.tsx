@@ -1,6 +1,5 @@
 import type { Vector3 } from "three";
 import { create } from "zustand";
-import { snapToNearestVertex } from "../utils/utils";
 
 type MeasurementState = {
   mode: "linear" | "geodesic";
@@ -8,7 +7,8 @@ type MeasurementState = {
   points: Vector3[];
   addPoint: (p: Vector3) => void;
   clearPoints: () => void;
-  adjacencyMap: any;
+  surfaceDistance: number | null;
+  setSurfaceDistance: (d: number | null) => void;
 };
 
 export const useMeasurement = create<MeasurementState>((set) => ({
@@ -20,5 +20,6 @@ export const useMeasurement = create<MeasurementState>((set) => ({
       points: s.points.length === 2 ? [p] : [...s.points, p],
     })),
   clearPoints: () => set({ points: [] }),
-  adjacencyMap: null,
+  surfaceDistance: null,
+  setSurfaceDistance: (d) => set({ surfaceDistance: d }),
 }));

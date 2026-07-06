@@ -86,7 +86,7 @@ function App() {
   const annotations = useViewer((s) => s.annotations);
   const tool = useViewer((s) => s.tool);
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
-  const mode = useMeasurement((s) => s.mode);
+  const surfaceDistance = useMeasurement((s) => s.surfaceDistance);
   const setTool = useViewer((s) => s.setTool);
   const focusedId = useViewer((s) => s.focusedId);
   const setFocusedId = useViewer((s) => s.setFocusedId);
@@ -169,8 +169,11 @@ function App() {
           </button>
         )}
         {distance !== null && (
-          <p className="rounded text-white px-3 py-1">
-            Distance: {distance.toFixed(2) + "m"}
+          <p className="bg-black/70 text-white px-3 rounded">
+            Straight: {distance.toFixed(2)}m
+            {surfaceDistance !== null && (
+              <> · Surface: {surfaceDistance.toFixed(2)}m</>
+            )}
           </p>
         )}
       </div>
@@ -204,7 +207,7 @@ function App() {
               focusedId={focusedId}
               resetCameraPos={resetCameraPos}
             />
-            <Measurement />
+            <Measurement modelRef={modelRef} />
             <Annotations />
             <Environment preset="city" />
           </Suspense>

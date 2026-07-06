@@ -11,8 +11,6 @@ import {
 } from "three";
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
-import { snapToNearestVertex } from "../utils/utils";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 type ModelParams = {
   ref: Ref<Group> | null;
