@@ -1,21 +1,74 @@
 import { useGLTF, useHelper } from "@react-three/drei";
-import type { ThreeEvent } from "@react-three/fiber";
-import type { Ref } from "react";
-import { BoxHelper, Object3D, type Group } from "three";
+import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
+import { useLayoutEffect, useRef, type Ref } from "react";
+import {
+  BoxHelper,
+  Mesh,
+  Object3D,
+  Vector3,
+  type Group,
+  type Material,
+} from "three";
 import { useViewer } from "../state/state";
+import { useMeasurement } from "../state/measurementState";
+import { snapToNearestVertex } from "../utils/utils";
+import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 type ModelParams = {
   ref: Ref<Group> | null;
   url: string;
 };
 
+const FADE_IN_SECONDS = 1.0;
+
 export const Model = ({ ref, url }: ModelParams) => {
   const { scene } = useGLTF(url);
-  const addPoint = useViewer((s) => s.addPoint);
+  const addPoint = useMeasurement((s) => s.addPoint);
+  const mode = useMeasurement((s) => s.mode);
+
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const tool = useViewer((s) => s.tool);
+  const invalidate = useThree((s) => s.invalidate);
 
   useHelper(ref as React.RefObject<Object3D>, BoxHelper, "cyan");
+
+  const fadeMaterialsRef = useRef<Material[]>([]);
+  const fadeElapsedRef = useRef(0);
+
+  // Start every material fully transparent so the model doesn't flash in at
+  // full opacity before the fade-in below gets a chance to run.
+  useLayoutEffect(() => {
+    const materials: Material[] = [];
+    const meshes: Mesh[] = [];
+    scene.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      meshes.push(obj);
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const mat of mats) {
+        mat.transparent = true;
+        mat.opacity = 0;
+        materials.push(mat);
+      }
+    });
+    fadeMaterialsRef.current = materials;
+    fadeElapsedRef.current = 0;
+    invalidate();
+  }, [scene, invalidate]);
+
+  useFrame((_, delta) => {
+    if (fadeElapsedRef.current >= FADE_IN_SECONDS) {
+      for (const mat of fadeMaterialsRef.current) {
+        mat.transparent = false;
+      }
+      return;
+    }
+    fadeElapsedRef.current += delta;
+    const t = Math.min(fadeElapsedRef.current / FADE_IN_SECONDS, 1);
+    for (const mat of fadeMaterialsRef.current) {
+      mat.opacity = t;
+    }
+    if (t < 1) invalidate(); // frameloop="demand" needs a nudge each step
+  });
 
   const clickHandler = (e: ThreeEvent<MouseEvent>) => {
     e.stopPropagation();

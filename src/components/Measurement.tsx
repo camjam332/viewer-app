@@ -1,8 +1,8 @@
-import { useViewer } from "../state/state";
 import { Line } from "@react-three/drei";
+import { useMeasurement } from "../state/measurementState";
 
 export const Measurement = () => {
-  const points = useViewer((s) => s.points);
+  const points = useMeasurement((s) => s.points);
 
   return (
     <>

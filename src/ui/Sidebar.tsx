@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { useViewer } from "../state/state";
+import { useMeasurement } from "../state/measurementState";
 import { Vector3 } from "three";
 
 export const Sidebar = () => {
@@ -9,7 +10,7 @@ export const Sidebar = () => {
   const updateAnnotation = useViewer((s) => s.updateAnnotation);
   const removeAnnotation = useViewer((s) => s.removeAnnotation);
   const setFocusedId = useViewer((s) => s.setFocusedId);
-  const addPoint = useViewer((s) => s.addPoint);
+  const addPoint = useMeasurement((s) => s.addPoint);
   const selectedId = useViewer((s) => s.selectedId);
 
   const [listOpen, setListOpen] = useState(true);

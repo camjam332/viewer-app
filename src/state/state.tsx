@@ -17,9 +17,6 @@ type ViewerState = {
   setFocusedId: (id: string | null) => void;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  points: Vector3[];
-  addPoint: (p: Vector3) => void;
-  clearPoints: () => void;
   tool: Tool;
   setTool: (t: Tool) => void;
   annotations: Annotation[];
@@ -34,12 +31,6 @@ type ViewerState = {
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
-      points: [],
-      addPoint: (p) =>
-        set((s) => ({
-          points: s.points.length === 2 ? [p] : [...s.points, p],
-        })),
-      clearPoints: () => set({ points: [] }),
       tool: "orbit",
       setTool: (t) => set({ tool: t }),
       annotations: [],

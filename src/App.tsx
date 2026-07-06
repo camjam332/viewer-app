@@ -1,10 +1,11 @@
 import { Canvas } from "@react-three/fiber";
 import { Model } from "./components/Model";
 import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
-import { Suspense, useEffect, useRef, type RefObject } from "react";
+import { Suspense, useEffect, useRef, useState, type RefObject } from "react";
 import { Loader } from "./components/Loader";
 import { ErrorBoundary } from "react-error-boundary";
 import { useViewer } from "./state/state";
+import { useMeasurement } from "./state/measurementState";
 import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
@@ -15,12 +16,16 @@ type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
   focused: Annotation | null;
   focusedId: string | null;
+  resetCameraPos: boolean;
+  resetCallback: () => void;
 };
 
 const CameraFocus = ({
   cameraControlsRef,
   focused,
   focusedId,
+  resetCameraPos,
+  resetCallback,
 }: CameraFocusParams) => {
   useEffect(() => {
     if (!cameraControlsRef.current) return;
@@ -44,6 +49,15 @@ const CameraFocus = ({
       cameraControlsRef.current.reset(true);
     }
   }, [focusedId]);
+
+  useEffect(() => {
+    if (!cameraControlsRef.current) return;
+    if (resetCameraPos)
+      cameraControlsRef.current.reset(true).then(() => {
+        resetCallback();
+      });
+  }, [resetCameraPos]);
+
   return null;
 };
 
@@ -61,20 +75,24 @@ function FrameOnLoad({
     modelRef.current.position.y += offset;
     box.min.y += offset;
     box.max.y += offset;
-    controlsRef.current.fitToBox(box, true); // frame instantly on load
+    controlsRef.current.fitToBox(box, false);
     controlsRef.current.saveState(); // remember this pose so reset() can restore it later
   }, []);
   return null;
 }
 
 function App() {
-  const points = useViewer((s) => s.points);
+  const points = useMeasurement((s) => s.points);
   const annotations = useViewer((s) => s.annotations);
+  const tool = useViewer((s) => s.tool);
+  const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
+  const mode = useMeasurement((s) => s.mode);
   const setTool = useViewer((s) => s.setTool);
   const focusedId = useViewer((s) => s.focusedId);
   const setFocusedId = useViewer((s) => s.setFocusedId);
-  const clearPoints = useViewer((s) => s.clearPoints);
+  const clearPoints = useMeasurement((s) => s.clearPoints);
 
+  const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
 
@@ -82,7 +100,6 @@ function App() {
   const url = "/models/triceratops_skull.glb";
 
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
-
   return (
     <>
       <div
@@ -113,10 +130,32 @@ function App() {
             Annotate
           </option>
         </select>
+        {tool === "measure" && (
+          <select
+            className="rounded text-white bg-white/10 px-3 py-1"
+            onChange={(e) =>
+              setMeasurementMode(e.target.value as "linear" | "geodesic")
+            }
+          >
+            <option
+              className="rounded bg-black/70 text-white px-2 py-1"
+              value="linear"
+            >
+              Linear
+            </option>
+            <option
+              className="rounded bg-black/70 text-white px-2 py-1"
+              value="geodesic"
+            >
+              Geodesic
+            </option>
+          </select>
+        )}
         <button
           className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
             setFocusedId(null);
+            setResetCameraPos(true);
           }}
         >
           Reset Camera
@@ -159,9 +198,11 @@ function App() {
             <Model ref={modelRef} url={url} />
             <FrameOnLoad controlsRef={cameraControlsRef} modelRef={modelRef} />
             <CameraFocus
+              resetCallback={() => setResetCameraPos(false)}
               cameraControlsRef={cameraControlsRef}
               focused={focused}
               focusedId={focusedId}
+              resetCameraPos={resetCameraPos}
             />
             <Measurement />
             <Annotations />

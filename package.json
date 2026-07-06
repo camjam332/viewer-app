@@ -20,6 +20,7 @@
     "react-error-boundary": "^6.1.2",
     "tailwindcss": "^4.3.2",
     "three": "^0.185.1",
+    "tinyqueue": "^3.0.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
