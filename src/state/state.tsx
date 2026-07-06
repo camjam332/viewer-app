@@ -12,6 +12,8 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  modelUrl: string | null;
+  setModelUrl: (url: string | null) => void;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedId: string | null;
@@ -25,11 +27,16 @@ type ViewerState = {
   ) => void;
   updateAnnotation: (id: string, patch: Partial<Annotation>) => void;
   removeAnnotation: (id: string) => void;
+  clearAnnotations: () => void;
+  markerScale: number;
+  setMarkerScale: (n: number) => void;
 };
 
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      modelUrl: null,
+      setModelUrl: (url) => set({ modelUrl: url, annotations: [] }),
       tool: "orbit",
       setTool: (t) => set({ tool: t }),
       annotations: [],
@@ -59,14 +66,17 @@ export const useViewer = create<ViewerState>()(
           annotations: s.annotations.filter((a) => a.id !== id),
           selectedId: s.selectedId === id ? null : s.selectedId,
         })),
+      clearAnnotations: () => set({ annotations: [] }),
       selectedId: null,
       setSelectedId: (id: string | null) => set({ selectedId: id }),
       focusedId: null,
       setFocusedId: (id: string | null) => set({ focusedId: id }),
+      markerScale: 1,
+      setMarkerScale: (s) => set({ markerScale: s }),
     }),
     {
       name: "viewer-storage",
-      partialize: (s) => ({ annotations: s.annotations }),
+      partialize: (s) => ({ annotations: s.annotations, modelUrl: s.modelUrl }),
     },
   ),
 );

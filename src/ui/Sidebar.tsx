@@ -11,6 +11,7 @@ export const Sidebar = () => {
   const removeAnnotation = useViewer((s) => s.removeAnnotation);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const addPoint = useMeasurement((s) => s.addPoint);
+  const clearAnnotations = useViewer((s) => s.clearAnnotations);
   const selectedId = useViewer((s) => s.selectedId);
 
   const [listOpen, setListOpen] = useState(false);
@@ -30,12 +31,22 @@ export const Sidebar = () => {
         <h1 className="text-white text-base font-medium">
           Annotations ({annotations.length})
         </h1>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
-            listOpen ? "rotate-180" : "rotate-0"
-          }`}
-        />
+        {annotations.length > 0 && (
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+              listOpen ? "rotate-180" : "rotate-0"
+            }`}
+          />
+        )}
       </button>
+      {annotations.length > 0 && (
+        <button
+          className="flex font-medium w-full items-center justify-between rounded px-1 py-1 hover:bg-white/10 transition-colors"
+          onClick={clearAnnotations}
+        >
+          Clear
+        </button>
+      )}
 
       {/* grid-rows trick animates height without knowing content size in advance */}
       <div

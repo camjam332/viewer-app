@@ -9,6 +9,7 @@ import { useMeasurement } from "./state/measurementState";
 import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
+import { ModelPicker, type ModelOption } from "./ui/ModelPicker";
 import type { Annotation, Tool } from "./state/state";
 import { Box3, type Group } from "three";
 
@@ -27,10 +28,11 @@ const CameraFocus = ({
   resetCameraPos,
   resetCallback,
 }: CameraFocusParams) => {
+  const markerScale = useViewer((s) => s.markerScale);
   useEffect(() => {
     if (!cameraControlsRef.current) return;
     if (focused) {
-      const dist = 3;
+      const dist = 0.25 * markerScale;
       const [px, py, pz] = focused.position;
       const [nx, ny, nz] = focused.normal ?? [0, 0, 1];
       const camX = px + nx * dist;
@@ -64,40 +66,76 @@ const CameraFocus = ({
 function FrameOnLoad({
   controlsRef,
   modelRef,
+  modelUrl,
 }: {
   controlsRef: RefObject<CameraControls | null>;
   modelRef: RefObject<Group | null>;
+  modelUrl: string | null;
 }) {
+  const setMarkerScale = useViewer((s) => s.setMarkerScale);
+  const clearPoints = useMeasurement((s) => s.clearPoints);
   useEffect(() => {
     if (!controlsRef.current || !modelRef.current) return;
     const box = new Box3().setFromObject(modelRef.current);
+    const markerScale = box.max.x - box.min.x;
+    setMarkerScale(markerScale);
+    clearPoints();
     const offset = -box.min.y;
     modelRef.current.position.y += offset;
     box.min.y += offset;
     box.max.y += offset;
     controlsRef.current.fitToBox(box, false);
     controlsRef.current.saveState(); // remember this pose so reset() can restore it later
-  }, []);
+  }, [modelUrl]);
   return null;
 }
 
 function App() {
   const points = useMeasurement((s) => s.points);
   const annotations = useViewer((s) => s.annotations);
-  const tool = useViewer((s) => s.tool);
-  const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
-  const mode = useMeasurement((s) => s.mode);
   const setTool = useViewer((s) => s.setTool);
   const focusedId = useViewer((s) => s.focusedId);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const clearPoints = useMeasurement((s) => s.clearPoints);
+  const setModelUrl = useViewer((s) => s.setModelUrl);
+  const modelUrl = useViewer((s) => s.modelUrl);
 
   const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
-  const url = "/models/triceratops_skull.glb";
+  const models: ModelOption[] = [
+    {
+      modelUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/glTF-Binary/BoomBox.glb",
+      name: "BoomBox",
+      screenshotUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/screenshot/screenshot.jpg",
+    },
+    {
+      modelUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+      name: "DamagedHelmet",
+      screenshotUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/screenshot/screenshot.png",
+    },
+    {
+      modelUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Lantern/glTF-Binary/Lantern.glb",
+      name: "Lantern",
+      screenshotUrl:
+        "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Lantern/screenshot/screenshot.jpg",
+    },
+    {
+      modelUrl: "/models/triceratops_skull.glb",
+      name: "Triceratops (Scan)",
+    },
+    {
+      modelUrl: "/models/cadillac_fleetwood_brougham_1997_pink/scene.gltf",
+      name: "Cadillac (Scan)",
+    },
+  ];
 
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
   return (
@@ -130,27 +168,11 @@ function App() {
             Annotate
           </option>
         </select>
-        {tool === "measure" && (
-          <select
-            className="rounded text-white bg-white/10 px-3 py-1"
-            onChange={(e) =>
-              setMeasurementMode(e.target.value as "linear" | "geodesic")
-            }
-          >
-            <option
-              className="rounded bg-black/70 text-white px-2 py-1"
-              value="linear"
-            >
-              Linear
-            </option>
-            <option
-              className="rounded bg-black/70 text-white px-2 py-1"
-              value="geodesic"
-            >
-              Geodesic
-            </option>
-          </select>
-        )}
+        <ModelPicker
+          models={models}
+          modelUrl={modelUrl}
+          setModelUrl={setModelUrl}
+        />
         <button
           className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
@@ -183,6 +205,7 @@ function App() {
           width: "100%",
           height: "100%",
         }}
+        camera={{ near: 0.01, far: 1000 }}
         frameloop="demand"
         dpr={[1, 2]}
       >
@@ -195,8 +218,12 @@ function App() {
           )}
         >
           <Suspense fallback={<Loader />}>
-            <Model ref={modelRef} url={url} />
-            <FrameOnLoad controlsRef={cameraControlsRef} modelRef={modelRef} />
+            <Model ref={modelRef} url={modelUrl} />
+            <FrameOnLoad
+              controlsRef={cameraControlsRef}
+              modelRef={modelRef}
+              modelUrl={modelUrl}
+            />
             <CameraFocus
               resetCallback={() => setResetCameraPos(false)}
               cameraControlsRef={cameraControlsRef}
