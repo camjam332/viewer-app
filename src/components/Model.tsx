@@ -1,7 +1,7 @@
-import { useGLTF, useHelper } from "@react-three/drei";
+import { useGLTF } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useLayoutEffect, useRef, type Ref } from "react";
-import { BoxHelper, Mesh, Object3D, type Group, type Material } from "three";
+import { Mesh, type Group, type Material } from "three";
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
 
@@ -15,13 +15,10 @@ const FADE_IN_SECONDS = 1.0;
 export const Model = ({ ref, url }: ModelParams) => {
   const { scene } = useGLTF(url);
   const addPoint = useMeasurement((s) => s.addPoint);
-  const mode = useMeasurement((s) => s.mode);
 
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const tool = useViewer((s) => s.tool);
   const invalidate = useThree((s) => s.invalidate);
-
-  useHelper(ref as React.RefObject<Object3D>, BoxHelper, "cyan");
 
   const fadeMaterialsRef = useRef<Material[]>([]);
   const fadeElapsedRef = useRef(0);

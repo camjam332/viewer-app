@@ -37,8 +37,6 @@ export const Sidebar = () => {
         />
       </button>
 
-      <div className="md:hidden">Mobile-only content</div>
-
       {/* grid-rows trick animates height without knowing content size in advance */}
       <div
         className={`grid transition-all duration-200 ease-out ${
