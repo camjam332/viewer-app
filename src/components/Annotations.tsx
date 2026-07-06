@@ -38,10 +38,10 @@ export const Annotations = () => {
                 e.stopPropagation();
                 setSelectedId(a.id);
               }}
-              scale={0.1}
+              scale={0.05}
               position={a.position}
             >
-              <boxGeometry />
+              <sphereGeometry />
               <meshBasicMaterial
                 color={selectedId === a.id ? "blue" : "black"}
               />

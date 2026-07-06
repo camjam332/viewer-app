@@ -13,7 +13,7 @@ export const Sidebar = () => {
   const addPoint = useMeasurement((s) => s.addPoint);
   const selectedId = useViewer((s) => s.selectedId);
 
-  const [listOpen, setListOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(false);
 
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
 
