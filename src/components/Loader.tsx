@@ -1,13 +1,17 @@
-import { useProgress, Html } from "@react-three/drei";
+import { useProgress } from "@react-three/drei";
+import { LoaderCircle } from "lucide-react";
 
 export const Loader = () => {
-  const { progress } = useProgress();
+  const { progress, active } = useProgress();
 
   return (
     <>
-      <Html center>
-        <h1>Loading {progress}%</h1>
-      </Html>
+      {active ? (
+        <div className="fixed inset-0 flex flex-col items-center justify-center gap-2">
+          <h1>Loading {progress.toFixed(0)}%</h1>
+          <LoaderCircle className="animate-spin w-16 h-16 text-gray-500" />
+        </div>
+      ) : null}
     </>
   );
 };

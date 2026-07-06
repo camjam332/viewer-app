@@ -25,8 +25,10 @@ export const Sidebar = () => {
                 md:bottom-auto md:left-auto md:top-4 md:right-4 md:w-72 md:max-h-[80vh] md:rounded-lg"
     >
       <button
-        className="flex w-full items-center justify-between rounded px-1 py-1 hover:bg-white/10 transition-colors"
-        onClick={() => setListOpen((v) => !v)}
+        className={`flex w-full items-center justify-between rounded px-1 py-1 ${annotations.length > 0 ? "hover:bg-white/10 transition-colors" : null}`}
+        onClick={() => {
+          if (annotations.length > 0) setListOpen((v) => !v);
+        }}
       >
         <h1 className="text-white text-base font-medium">
           Annotations ({annotations.length})

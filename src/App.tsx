@@ -76,6 +76,7 @@ function FrameOnLoad({
   const clearPoints = useMeasurement((s) => s.clearPoints);
   useEffect(() => {
     if (!controlsRef.current || !modelRef.current) return;
+    controlsRef.current.reset(false);
     const box = new Box3().setFromObject(modelRef.current);
     const markerScale = box.max.x - box.min.x;
     setMarkerScale(markerScale);
@@ -109,14 +110,14 @@ function App() {
     {
       modelUrl:
         "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/glTF-Binary/BoomBox.glb",
-      name: "BoomBox",
+      name: "Boom Box",
       screenshotUrl:
         "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/screenshot/screenshot.jpg",
     },
     {
       modelUrl:
         "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
-      name: "DamagedHelmet",
+      name: "Damaged Helmet",
       screenshotUrl:
         "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/screenshot/screenshot.png",
     },
@@ -136,17 +137,16 @@ function App() {
       name: "Cadillac (Scan)",
     },
   ];
-
   const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
   return (
     <>
       <div
-        className="fixed top-4 left-1/2 -translate-x-1/2 z-10
-                flex items-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
-                md:left-4 md:translate-x-0"
+        className="fixed top-2 inset-x-2 z-10
+                flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+                md:top-4 md:inset-x-auto md:left-4 md:right-auto md:w-auto md:justify-start md:flex-nowrap"
       >
         <select
-          className="rounded text-white bg-white/10 px-3 py-1"
+          className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onChange={(e) => setTool(e.target.value as Tool)}
         >
           <option
@@ -217,7 +217,7 @@ function App() {
             </Html>
           )}
         >
-          <Suspense fallback={<Loader />}>
+          <Suspense fallback={null}>
             <Model ref={modelRef} url={modelUrl} />
             <FrameOnLoad
               controlsRef={cameraControlsRef}
@@ -236,8 +236,9 @@ function App() {
             <Environment preset="city" />
           </Suspense>
         </ErrorBoundary>
-        <Grid infiniteGrid fadeDistance={20} />
+        <Grid infiniteGrid fadeDistance={50} />
       </Canvas>
+      <Loader />
     </>
   );
 }

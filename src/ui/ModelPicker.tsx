@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, Box } from "lucide-react";
 
 export type ModelOption = {
   modelUrl: string;
@@ -66,7 +66,9 @@ export const ModelPicker = ({
                     className="h-8 w-8 rounded object-cover"
                   />
                 ) : (
-                  <div className="h-8 w-8 rounded bg-white/10" />
+                  <div className="h-8 w-8 flex justify-center items-center rounded bg-white/10">
+                    <Box />
+                  </div>
                 )}
                 <span>{model.name}</span>
               </button>
