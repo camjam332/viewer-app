@@ -1,6 +1,5 @@
 import type { Vector3 } from "three";
 import { create } from "zustand";
-import { snapToNearestVertex } from "../utils/utils";
 
 type MeasurementState = {
   mode: "linear" | "geodesic";

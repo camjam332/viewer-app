@@ -1,18 +1,9 @@
 import { useGLTF, useHelper } from "@react-three/drei";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { useLayoutEffect, useRef, type Ref } from "react";
-import {
-  BoxHelper,
-  Mesh,
-  Object3D,
-  Vector3,
-  type Group,
-  type Material,
-} from "three";
+import { BoxHelper, Mesh, Object3D, type Group, type Material } from "three";
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
-import { snapToNearestVertex } from "../utils/utils";
-import { mergeVertices } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 
 type ModelParams = {
   ref: Ref<Group> | null;

@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Vector3 } from "three";
 
 export type Tool = "orbit" | "measure" | "annotate";
 
