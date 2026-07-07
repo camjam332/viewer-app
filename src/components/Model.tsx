@@ -74,7 +74,7 @@ export const Model = ({ ref, url }: ModelParams) => {
         normal = [normalVals.x, normalVals.y, normalVals.z];
       }
       const position: [number, number, number] = [point.x, point.y, point.z];
-      addAnnotation(position, normal);
+      addAnnotation(position, normal, url ?? undefined);
     }
   };
 

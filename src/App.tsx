@@ -94,6 +94,8 @@ function FrameOnLoad({
 function App() {
   const points = useMeasurement((s) => s.points);
   const annotations = useViewer((s) => s.annotations);
+  const clearAnnotations = useViewer((s) => s.clearAnnotations);
+  const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
   const setTool = useViewer((s) => s.setTool);
   const focusedId = useViewer((s) => s.focusedId);
   const setFocusedId = useViewer((s) => s.setFocusedId);
@@ -102,8 +104,20 @@ function App() {
   const modelUrl = useViewer((s) => s.modelUrl);
 
   const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
+  // Local, non-persisted: an uploaded file is a one-off blob URL that's
+  // invalid after a refresh, so it must never reach the persisted
+  // `modelUrl` in the store. It overrides `modelUrl` for this session only.
+  const [uploadedModelUrl, setUploadedModelUrl] = useState<string | null>(null);
+
+  const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
+
+  // An uploaded model's blob URL never survives a refresh, so any
+  // annotations tied to it are now orphaned — drop them once on load.
+  useEffect(() => {
+    pruneUploadedAnnotations();
+  }, [pruneUploadedAnnotations]);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const models: ModelOption[] = [
@@ -171,7 +185,12 @@ function App() {
         <ModelPicker
           models={models}
           modelUrl={modelUrl}
-          setModelUrl={setModelUrl}
+          setModelUrl={(url) => {
+            setUploadedModelUrl(null);
+            setModelUrl(url);
+          }}
+          uploadedModelUrl={uploadedModelUrl}
+          onUploadModel={setUploadedModelUrl}
         />
         <button
           className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
@@ -218,11 +237,11 @@ function App() {
           )}
         >
           <Suspense fallback={null}>
-            <Model ref={modelRef} url={modelUrl} />
+            <Model ref={modelRef} url={effectiveModelUrl} />
             <FrameOnLoad
               controlsRef={cameraControlsRef}
               modelRef={modelRef}
-              modelUrl={modelUrl}
+              modelUrl={effectiveModelUrl}
             />
             <CameraFocus
               resetCallback={() => setResetCameraPos(false)}

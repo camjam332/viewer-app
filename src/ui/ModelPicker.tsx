@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { ChevronDown, Box } from "lucide-react";
+import { ModelUpload } from "./ModelUpload";
 
 export type ModelOption = {
   modelUrl: string;
@@ -11,15 +12,20 @@ type ModelPickerProps = {
   models: ModelOption[];
   modelUrl: string | null;
   setModelUrl: (url: string) => void;
+  uploadedModelUrl: string | null;
+  onUploadModel: (url: string) => void;
 };
 
 export const ModelPicker = ({
   models,
   modelUrl,
   setModelUrl,
+  uploadedModelUrl,
+  onUploadModel,
 }: ModelPickerProps) => {
   const [open, setOpen] = useState(false);
   const selected = models.find((m) => m.modelUrl === modelUrl);
+  const label = uploadedModelUrl ? "Uploaded Model" : (selected?.name ?? "Select model");
 
   return (
     <div className="relative">
@@ -27,14 +33,14 @@ export const ModelPicker = ({
         className="flex items-center gap-2 rounded bg-white/10 px-3 py-1 text-white hover:bg-white/20"
         onClick={() => setOpen((v) => !v)}
       >
-        {selected?.screenshotUrl ? (
+        {!uploadedModelUrl && selected?.screenshotUrl ? (
           <img
             src={selected.screenshotUrl}
             alt={selected.name}
             className="h-5 w-5 rounded object-cover"
           />
         ) : null}
-        <span>{selected?.name ?? "Select model"}</span>
+        <span>{label}</span>
         <ChevronDown
           className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
             open ? "rotate-180" : "rotate-0"
@@ -73,6 +79,12 @@ export const ModelPicker = ({
                 <span>{model.name}</span>
               </button>
             ))}
+            <ModelUpload
+              onUpload={(url) => {
+                onUploadModel(url);
+                setOpen(false);
+              }}
+            />
           </div>
         </>
       )}

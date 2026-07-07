@@ -110,19 +110,19 @@ export const Sidebar = () => {
                 />
               </label>
               <button
-                className="rounded bg-red-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-red-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => removeAnnotation(selected.id)}
               >
                 Delete
               </button>
               <button
-                className="rounded bg-blue-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-blue-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => setFocusedId(selected.id)}
               >
                 Focus
               </button>
               <button
-                className="rounded bg-green-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-green-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => addPoint(new Vector3(...selected.position))}
               >
                 Add Marker
