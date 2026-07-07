@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { Vector3 } from "three";
 
 export type Tool = "orbit" | "measure" | "annotate";
 
@@ -10,9 +9,12 @@ export type Annotation = {
   normal: [number, number, number];
   title: string;
   note: string;
+  modelUrl?: string;
 };
 
 type ViewerState = {
+  modelUrl: string | null;
+  setModelUrl: (url: string | null) => void;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedId: string | null;
@@ -23,24 +25,32 @@ type ViewerState = {
   addAnnotation: (
     p: [number, number, number],
     n: [number, number, number],
+    modelUrl?: string,
   ) => void;
   updateAnnotation: (id: string, patch: Partial<Annotation>) => void;
   removeAnnotation: (id: string) => void;
+  clearAnnotations: () => void;
+  pruneUploadedAnnotations: () => void;
+  markerScale: number;
+  setMarkerScale: (n: number) => void;
 };
 
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      modelUrl: null,
+      setModelUrl: (url) => set({ modelUrl: url, annotations: [] }),
       tool: "orbit",
       setTool: (t) => set({ tool: t }),
       annotations: [],
-      addAnnotation: (position, normal) =>
+      addAnnotation: (position, normal, modelUrl) =>
         set((s) => {
           const genId = crypto.randomUUID().toString();
           const annotation = {
             id: genId,
             position,
             normal,
+            modelUrl,
             title: `New Annotation ${genId.slice(0, 4)}`,
             note: "",
           };
@@ -60,14 +70,23 @@ export const useViewer = create<ViewerState>()(
           annotations: s.annotations.filter((a) => a.id !== id),
           selectedId: s.selectedId === id ? null : s.selectedId,
         })),
+      clearAnnotations: () => set({ annotations: [] }),
+      pruneUploadedAnnotations: () =>
+        set((s) => ({
+          annotations: s.annotations.filter(
+            (a) => !a.modelUrl?.startsWith("blob:"),
+          ),
+        })),
       selectedId: null,
       setSelectedId: (id: string | null) => set({ selectedId: id }),
       focusedId: null,
       setFocusedId: (id: string | null) => set({ focusedId: id }),
+      markerScale: 1,
+      setMarkerScale: (s) => set({ markerScale: s }),
     }),
     {
       name: "viewer-storage",
-      partialize: (s) => ({ annotations: s.annotations }),
+      partialize: (s) => ({ annotations: s.annotations, modelUrl: s.modelUrl }),
     },
   ),
 );

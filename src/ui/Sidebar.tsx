@@ -11,9 +11,10 @@ export const Sidebar = () => {
   const removeAnnotation = useViewer((s) => s.removeAnnotation);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const addPoint = useMeasurement((s) => s.addPoint);
+  const clearAnnotations = useViewer((s) => s.clearAnnotations);
   const selectedId = useViewer((s) => s.selectedId);
 
-  const [listOpen, setListOpen] = useState(true);
+  const [listOpen, setListOpen] = useState(false);
 
   const selected = annotations.find((a) => a.id === selectedId) ?? null;
 
@@ -24,20 +25,30 @@ export const Sidebar = () => {
                 md:bottom-auto md:left-auto md:top-4 md:right-4 md:w-72 md:max-h-[80vh] md:rounded-lg"
     >
       <button
-        className="flex w-full items-center justify-between rounded px-1 py-1 hover:bg-white/10 transition-colors"
-        onClick={() => setListOpen((v) => !v)}
+        className={`flex w-full items-center justify-between rounded px-1 py-1 ${annotations.length > 0 ? "hover:bg-white/10 transition-colors" : null}`}
+        onClick={() => {
+          if (annotations.length > 0) setListOpen((v) => !v);
+        }}
       >
         <h1 className="text-white text-base font-medium">
           Annotations ({annotations.length})
         </h1>
-        <ChevronDown
-          className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
-            listOpen ? "rotate-180" : "rotate-0"
-          }`}
-        />
+        {annotations.length > 0 && (
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+              listOpen ? "rotate-180" : "rotate-0"
+            }`}
+          />
+        )}
       </button>
-
-      <div className="md:hidden">Mobile-only content</div>
+      {annotations.length > 0 && (
+        <button
+          className="flex font-medium w-full items-center justify-between rounded px-1 py-1 hover:bg-white/10 transition-colors"
+          onClick={clearAnnotations}
+        >
+          Clear
+        </button>
+      )}
 
       {/* grid-rows trick animates height without knowing content size in advance */}
       <div
@@ -99,19 +110,19 @@ export const Sidebar = () => {
                 />
               </label>
               <button
-                className="rounded bg-red-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-red-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => removeAnnotation(selected.id)}
               >
                 Delete
               </button>
               <button
-                className="rounded bg-blue-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-blue-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => setFocusedId(selected.id)}
               >
                 Focus
               </button>
               <button
-                className="rounded bg-green-600 px-3 py-1 mt-2 mr-2"
+                className="cursor-pointer rounded bg-green-600 px-3 py-1 mt-2 mr-2"
                 onClick={() => addPoint(new Vector3(...selected.position))}
               >
                 Add Marker

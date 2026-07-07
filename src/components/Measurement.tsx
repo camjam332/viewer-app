@@ -1,5 +1,6 @@
 import { Line } from "@react-three/drei";
 import { useMeasurement } from "../state/measurementState";
+import { useViewer } from "../state/state";
 import { Box3, Object3D, Raycaster, Vector3 } from "three";
 import { useEffect, useMemo, type RefObject } from "react";
 
@@ -10,6 +11,7 @@ type MeasurementProps = {
 export const Measurement = ({ modelRef }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
+  const markerScale = useViewer((s) => s.markerScale);
 
   const straight = points.length === 2 ? points[0].distanceTo(points[1]) : null;
 
@@ -52,7 +54,7 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
     <>
       {points.map((v, i) => {
         return (
-          <mesh scale={0.1} key={i} position={v}>
+          <mesh scale={0.01 * markerScale} key={i} position={v}>
             <sphereGeometry />
             <meshBasicMaterial color={"red"} depthTest={false} />
           </mesh>

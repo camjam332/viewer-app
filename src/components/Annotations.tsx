@@ -7,6 +7,7 @@ export const Annotations = () => {
   const annotations = useViewer((s) => s.annotations);
   const selectedId = useViewer((s) => s.selectedId);
   const setSelectedId = useViewer((s) => s.setSelectedId);
+  const markerScale = useViewer((s) => s.markerScale);
   return (
     <>
       {annotations.map((a) => {
@@ -38,10 +39,10 @@ export const Annotations = () => {
                 e.stopPropagation();
                 setSelectedId(a.id);
               }}
-              scale={0.1}
+              scale={0.01 * markerScale}
               position={a.position}
             >
-              <boxGeometry />
+              <sphereGeometry />
               <meshBasicMaterial
                 color={selectedId === a.id ? "blue" : "black"}
               />
