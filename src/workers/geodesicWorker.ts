@@ -6,7 +6,7 @@ import {
   findNearestVertexIndex,
   geodesicDistance,
   type AdjacencyGraph,
-} from "../utils/utils";
+} from "../utils/measurement_utils";
 
 export type MeshBuffers = {
   position: Float32Array;
