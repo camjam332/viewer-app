@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { ChevronDown, Box } from "lucide-react";
 import { ModelUpload } from "./ModelUpload";
+import { useViewer } from "../state/state";
+import { useMeasurement } from "../state/measurementState";
 
 export type ModelOption = {
   modelUrl: string;
@@ -24,8 +26,17 @@ export const ModelPicker = ({
   onUploadModel,
 }: ModelPickerProps) => {
   const [open, setOpen] = useState(false);
+  const setIsWireframe = useViewer((s) => s.setIsWireframe);
+  const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
   const selected = models.find((m) => m.modelUrl === modelUrl);
-  const label = uploadedModelUrl ? "Uploaded Model" : (selected?.name ?? "Select model");
+  const label = uploadedModelUrl
+    ? "Uploaded Model"
+    : (selected?.name ?? "Select model");
+
+  useEffect(() => {
+    setMeasurementMode("linear");
+    setIsWireframe(false);
+  }, [modelUrl]);
 
   return (
     <div className="relative">

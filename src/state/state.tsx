@@ -15,6 +15,8 @@ export type Annotation = {
 type ViewerState = {
   modelUrl: string | null;
   setModelUrl: (url: string | null) => void;
+  isWireframe: boolean;
+  setIsWireframe: (b?: boolean) => void;
   focusedId: string | null;
   setFocusedId: (id: string | null) => void;
   selectedId: string | null;
@@ -40,6 +42,9 @@ export const useViewer = create<ViewerState>()(
     (set) => ({
       modelUrl: null,
       setModelUrl: (url) => set({ modelUrl: url, annotations: [] }),
+      isWireframe: false,
+      setIsWireframe: (b) =>
+        set((s) => ({ isWireframe: b !== undefined ? b : !s.isWireframe })),
       tool: "orbit",
       setTool: (t) => set({ tool: t }),
       annotations: [],

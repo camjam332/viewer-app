@@ -18,7 +18,7 @@ import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import { ModelPicker, type ModelOption } from "./ui/ModelPicker";
 import type { Annotation, Tool } from "./state/state";
-import { Box3, type Group } from "three";
+import { Box3, Mesh, type Group } from "three";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -109,19 +109,14 @@ function App() {
   const clearPoints = useMeasurement((s) => s.clearPoints);
   const setModelUrl = useViewer((s) => s.setModelUrl);
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
+  const setIsWireframe = useViewer((s) => s.setIsWireframe);
+  const isWireframe = useViewer((s) => s.isWireframe);
   const measurementMode = useMeasurement((s) => s.mode);
   const modelUrl = useViewer((s) => s.modelUrl);
-
   const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
   const [uploadedModelUrl, setUploadedModelUrl] = useState<string | null>(null);
-
-  const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
-
-  useEffect(() => {
-    pruneUploadedAnnotations();
-  }, [pruneUploadedAnnotations]);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const models: ModelOption[] = [
@@ -155,17 +150,38 @@ function App() {
       name: "Cadillac (Scan)",
     },
   ];
+  const selectedModel = models.find((m) => m.modelUrl === modelUrl);
+  const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
   const distance = useMemo(() => {
     if (points.length === 2) {
       if (measurementMode === "linear") {
         return points[0].distanceTo(points[1]);
       } else {
-        return 0;
+        if (!surfaceDistance) return;
+        return surfaceDistance;
       }
     }
     return null;
-  }, [measurementMode, points]);
+  }, [measurementMode, points, surfaceDistance]);
+
+  useEffect(() => {
+    pruneUploadedAnnotations();
+  }, [pruneUploadedAnnotations]);
+
+  useEffect(() => {
+    if (modelRef.current) {
+      modelRef.current.traverse((obj) => {
+        if (!(obj instanceof Mesh)) return;
+        const mats = Array.isArray(obj.material)
+          ? obj.material
+          : [obj.material];
+        for (const mat of mats) {
+          mat.wireframe = isWireframe;
+        }
+      });
+    }
+  }, [isWireframe]);
 
   return (
     <>
@@ -207,6 +223,17 @@ function App() {
           uploadedModelUrl={uploadedModelUrl}
           onUploadModel={setUploadedModelUrl}
         />
+        <div className="flex items-center gap-2">
+          <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+            Wireframe
+          </label>
+          <input
+            type="checkbox"
+            checked={isWireframe}
+            onChange={() => setIsWireframe()}
+            className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+          />
+        </div>
         <button
           className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
@@ -216,27 +243,29 @@ function App() {
         >
           Reset Camera
         </button>
-        {points.length > 0 && (
-          <select
-            onChange={(e) =>
-              setMeasurementMode(e.target.value as "linear" | "geodesic")
-            }
-            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-          >
-            <option
-              value="linear"
-              className="rounded bg-black/70 text-white px-2 py-1"
+        {points.length > 0 &&
+          selectedModel &&
+          selectedModel.name.toLowerCase().includes("scan") && (
+            <select
+              onChange={(e) =>
+                setMeasurementMode(e.target.value as "linear" | "geodesic")
+              }
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
             >
-              Linear
-            </option>
-            <option
-              value="geodesic"
-              className="rounded bg-black/70 text-white px-2 py-1"
-            >
-              Geodesic
-            </option>
-          </select>
-        )}
+              <option
+                value="linear"
+                className="rounded bg-black/70 text-white px-2 py-1"
+              >
+                Linear
+              </option>
+              <option
+                value="geodesic"
+                className="rounded bg-black/70 text-white px-2 py-1"
+              >
+                Geodesic
+              </option>
+            </select>
+          )}
         {points.length > 0 && (
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
@@ -245,16 +274,15 @@ function App() {
             Clear Points
           </button>
         )}
-        {distance !== null && (
+        {distance && (
           <p className="bg-black/70 text-white px-3 rounded">
             {measurementMode === "linear"
               ? `Straight: ${distance.toFixed(2)}m`
-              : surfaceDistance !== null &&
-                `Surface: ${surfaceDistance.toFixed(2)}m`}
+              : surfaceDistance && `Surface: ${surfaceDistance.toFixed(2)}m`}
           </p>
         )}
       </div>
-      <Sidebar />
+      {/* <Sidebar /> */}
       <Canvas
         style={{
           position: "fixed",
