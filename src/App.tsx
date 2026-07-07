@@ -282,7 +282,7 @@ function App() {
           </p>
         )}
       </div>
-      {/* <Sidebar /> */}
+      <Sidebar />
       <Canvas
         style={{
           position: "fixed",
