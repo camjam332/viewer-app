@@ -12,8 +12,7 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
   const markerScale = useViewer((s) => s.markerScale);
-
-  const straight = points.length === 2 ? points[0].distanceTo(points[1]) : null;
+  const measurementMode = useMeasurement((s) => s.mode);
 
   const draped = useMemo(() => {
     if (points.length !== 2 || !modelRef.current) return null;
@@ -60,18 +59,19 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
           </mesh>
         );
       })}
-      {points.length === 2 && (
-        <Line points={points} color={"red"} depthTest={false} />
-      )}
-
-      {draped && (
-        <Line
-          points={draped.points}
-          color="cyan"
-          depthTest={false}
-          lineWidth={2}
-        />
-      )}
+      {points.length === 2 &&
+        (measurementMode === "linear" ? (
+          <Line points={points} color={"red"} depthTest={false} />
+        ) : (
+          draped && (
+            <Line
+              points={draped.points}
+              color="cyan"
+              depthTest={false}
+              lineWidth={2}
+            />
+          )
+        ))}
     </>
   );
 };

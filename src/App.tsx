@@ -1,7 +1,14 @@
 import { Canvas } from "@react-three/fiber";
 import { Model } from "./components/Model";
 import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
-import { Suspense, useEffect, useRef, useState, type RefObject } from "react";
+import {
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+} from "react";
 import { Loader } from "./components/Loader";
 import { ErrorBoundary } from "react-error-boundary";
 import { useViewer } from "./state/state";
@@ -101,6 +108,8 @@ function App() {
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const clearPoints = useMeasurement((s) => s.clearPoints);
   const setModelUrl = useViewer((s) => s.setModelUrl);
+  const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
+  const measurementMode = useMeasurement((s) => s.mode);
   const modelUrl = useViewer((s) => s.modelUrl);
 
   const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
@@ -146,7 +155,18 @@ function App() {
       name: "Cadillac (Scan)",
     },
   ];
-  const distance = points.length === 2 ? points[0].distanceTo(points[1]) : null;
+
+  const distance = useMemo(() => {
+    if (points.length === 2) {
+      if (measurementMode === "linear") {
+        return points[0].distanceTo(points[1]);
+      } else {
+        return 0;
+      }
+    }
+    return null;
+  }, [measurementMode, points]);
+
   return (
     <>
       <div
@@ -197,6 +217,27 @@ function App() {
           Reset Camera
         </button>
         {points.length > 0 && (
+          <select
+            onChange={(e) =>
+              setMeasurementMode(e.target.value as "linear" | "geodesic")
+            }
+            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+          >
+            <option
+              value="linear"
+              className="rounded bg-black/70 text-white px-2 py-1"
+            >
+              Linear
+            </option>
+            <option
+              value="geodesic"
+              className="rounded bg-black/70 text-white px-2 py-1"
+            >
+              Geodesic
+            </option>
+          </select>
+        )}
+        {points.length > 0 && (
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
             onClick={clearPoints}
@@ -206,10 +247,10 @@ function App() {
         )}
         {distance !== null && (
           <p className="bg-black/70 text-white px-3 rounded">
-            Straight: {distance.toFixed(2)}m
-            {surfaceDistance !== null && (
-              <> · Surface: {surfaceDistance.toFixed(2)}m</>
-            )}
+            {measurementMode === "linear"
+              ? `Straight: ${distance.toFixed(2)}m`
+              : surfaceDistance !== null &&
+                `Surface: ${surfaceDistance.toFixed(2)}m`}
           </p>
         )}
       </div>
