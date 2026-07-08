@@ -35,6 +35,8 @@ type ViewerState = {
   pruneUploadedAnnotations: () => void;
   markerScale: number;
   setMarkerScale: (n: number) => void;
+  showAero: boolean;
+  setShowAero: (b?: boolean) => void;
 };
 
 export const useViewer = create<ViewerState>()(
@@ -88,6 +90,9 @@ export const useViewer = create<ViewerState>()(
       setFocusedId: (id: string | null) => set({ focusedId: id }),
       markerScale: 1,
       setMarkerScale: (s) => set({ markerScale: s }),
+      showAero: false,
+      setShowAero: (b) =>
+        set((s) => ({ showAero: b !== undefined ? b : !s.showAero })),
     }),
     {
       name: "viewer-storage",

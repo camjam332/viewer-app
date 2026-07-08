@@ -1,5 +1,31 @@
 import { MathUtils, Vector3 } from "three";
 
+type FlowConfig = {
+  streamlineCount: number;
+  freestreamSpeed: number;
+  trailLength: number;
+  showFieldBounds: boolean;
+  showCollisionMesh: boolean;
+  colorBySpeed: boolean;
+  surfaceInfluence: number;
+  repulsionStrength: number;
+  flowYawDeg: number; // rotation around world +Y, 0 = +X, 90 = +Z
+  flowPitchDeg: number; // tilt up/down out of the horizontal plane
+};
+
+export const DEFAULT_CONFIG: FlowConfig = {
+  streamlineCount: 260,
+  freestreamSpeed: 1.6,
+  trailLength: 60,
+  showFieldBounds: false,
+  showCollisionMesh: false,
+  colorBySpeed: true,
+  surfaceInfluence: 0.22,
+  repulsionStrength: 1.4,
+  flowYawDeg: 0,
+  flowPitchDeg: 0,
+};
+
 export function directionFromYawPitch(
   yawDeg: number,
   pitchDeg: number,

@@ -1,8 +1,9 @@
 import { Canvas } from "@react-three/fiber";
-import { Model } from "./components/Model";
+import { Model, type ModelFieldInfo } from "./components/Model";
 import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
 import {
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -19,6 +20,16 @@ import { Sidebar } from "./ui/Sidebar";
 import { ModelPicker, type ModelOption } from "./ui/ModelPicker";
 import type { Annotation, Tool } from "./state/state";
 import { Box3, Mesh, type Group } from "three";
+import {
+  FieldContext,
+  StreamlineField,
+  type FieldContextValue,
+} from "./components/Aero_Vis/StreamlineField";
+import {
+  directionFromYawPitch,
+  orthonormalBasis,
+  DEFAULT_CONFIG as config,
+} from "./utils/aerodynamics_utils";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -111,12 +122,15 @@ function App() {
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
   const isWireframe = useViewer((s) => s.isWireframe);
+  const showAero = useViewer((s) => s.showAero);
+  const setShowAero = useViewer((s) => s.setShowAero);
   const measurementMode = useMeasurement((s) => s.mode);
   const modelUrl = useViewer((s) => s.modelUrl);
   const [resetCameraPos, setResetCameraPos] = useState<boolean>(false);
   const [uploadedModelUrl, setUploadedModelUrl] = useState<string | null>(null);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
+  const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const models: ModelOption[] = [
@@ -164,6 +178,36 @@ function App() {
     }
     return null;
   }, [measurementMode, points, surfaceDistance]);
+
+  //Start
+  const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
+  const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
+  const flowDirection = useMemo(
+    () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
+    [config.flowYawDeg, config.flowPitchDeg],
+  );
+  const { right, up } = useMemo(
+    () => orthonormalBasis(flowDirection),
+    [flowDirection],
+  );
+
+  const enrichedField: FieldContextValue | null = useMemo(() => {
+    if (!modelField) return null;
+    return { ...modelField, flowDirection, right, up };
+  }, [modelField, flowDirection, right, up]);
+
+  useEffect(() => {
+    setModelField(null);
+  }, [effectiveModelUrl]);
+
+  useEffect(() => {
+    const prev = prevModelFieldRef.current;
+    if (prev && prev !== modelField) {
+      prev.collisionGeometry?.dispose();
+    }
+    prevModelFieldRef.current = modelField;
+  }, [modelField]);
+  //End
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -234,6 +278,17 @@ function App() {
             className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
           />
         </div>
+        <div className="flex items-center gap-2">
+          <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+            Show Aeros
+          </label>
+          <input
+            type="checkbox"
+            checked={showAero}
+            onChange={() => setShowAero()}
+            className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+          />
+        </div>
         <button
           className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
           onClick={() => {
@@ -292,7 +347,6 @@ function App() {
           height: "100%",
         }}
         camera={{ near: 0.001, far: 1000 }}
-        frameloop="demand"
         dpr={[1, 2]}
       >
         <CameraControls ref={cameraControlsRef} makeDefault />
@@ -304,7 +358,11 @@ function App() {
           )}
         >
           <Suspense fallback={null}>
-            <Model ref={modelRef} url={effectiveModelUrl} />
+            <Model
+              ref={modelRef}
+              url={effectiveModelUrl}
+              onField={handleField}
+            />
             <FrameOnLoad
               controlsRef={cameraControlsRef}
               modelRef={modelRef}
@@ -322,6 +380,19 @@ function App() {
             <Environment preset="city" />
           </Suspense>
         </ErrorBoundary>
+
+        {showAero && enrichedField && (
+          <FieldContext.Provider value={enrichedField}>
+            <StreamlineField
+              count={config.streamlineCount}
+              freestreamSpeed={config.freestreamSpeed}
+              trailLength={config.trailLength}
+              colorBySpeed={config.colorBySpeed}
+              surfaceInfluence={config.surfaceInfluence}
+              repulsionStrength={config.repulsionStrength}
+            />
+          </FieldContext.Provider>
+        )}
         <Grid infiniteGrid fadeDistance={50} />
       </Canvas>
       <Loader />
