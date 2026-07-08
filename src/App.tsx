@@ -27,9 +27,9 @@ import {
 import {
   directionFromYawPitch,
   orthonormalBasis,
-  DEFAULT_CONFIG as config,
 } from "./utils/aerodynamics_utils";
 import { Toolbar } from "./ui/Toolbar";
+import { useAero } from "./state/aeroState";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -118,6 +118,7 @@ function App() {
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
   const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
+  const config = useAero((s) => s.config);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;

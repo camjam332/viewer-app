@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useViewer, type Tool } from "../state/state";
 import { ModelPicker } from "./ModelPicker";
 import { useMeasurement } from "../state/measurementState";
+import { ControlSlider } from "./ControlSlider";
+import { useAero } from "../state/aeroState";
 
 export const Toolbar = () => {
   const setTool = useViewer((s) => s.setTool);
@@ -11,6 +13,8 @@ export const Toolbar = () => {
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const setResetCamera = useViewer((s) => s.setResetCamera);
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
+  const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
+  const setConfig = useAero((s) => s.setConfig);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -22,7 +26,7 @@ export const Toolbar = () => {
   const measurementMode = useMeasurement((s) => s.mode);
   const surfaceDistance = useMeasurement((s) => s.surfaceDistance);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
-  const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
+  const config = useAero((s) => s.config);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
 
@@ -110,6 +114,26 @@ export const Toolbar = () => {
               onChange={() => setShowAero()}
               className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
             />
+            {showAero && (
+              <div>
+                <ControlSlider
+                  label="Flow Direction (°)"
+                  min={-180}
+                  max={180}
+                  step={1}
+                  value={config.flowYawDeg}
+                  onChange={(v) => setConfig({ flowYawDeg: v })}
+                />
+                <ControlSlider
+                  label="Trail length"
+                  min={10}
+                  max={150}
+                  step={5}
+                  value={config.trailLength}
+                  onChange={(v) => setConfig((c) => ({ ...c, trailLength: v }))}
+                />
+              </div>
+            )}
           </div>
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
