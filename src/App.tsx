@@ -99,10 +99,6 @@ function FrameOnLoad({
     const markerScale = box.max.x - box.min.x;
     setMarkerScale(markerScale);
     clearPoints();
-    const offset = -box.min.y;
-    modelRef.current.position.y += offset;
-    box.min.y += offset;
-    box.max.y += offset;
     controlsRef.current.fitToBox(box, false);
     controlsRef.current.saveState(); // remember this pose so reset() can restore it later
   }, [modelUrl]);
@@ -358,11 +354,13 @@ function App() {
           )}
         >
           <Suspense fallback={null}>
-            <Model
-              ref={modelRef}
-              url={effectiveModelUrl}
-              onField={handleField}
-            />
+            {effectiveModelUrl && (
+              <Model
+                ref={modelRef}
+                url={effectiveModelUrl}
+                onField={handleField}
+              />
+            )}
             <FrameOnLoad
               controlsRef={cameraControlsRef}
               modelRef={modelRef}

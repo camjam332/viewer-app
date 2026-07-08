@@ -16,7 +16,7 @@ import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js
 
 type ModelParams = {
   ref: Ref<Group> | null;
-  url: string | null;
+  url: string;
   onField: (f: ModelFieldInfo) => void;
 };
 
@@ -31,10 +31,8 @@ export type ModelFieldInfo = {
 const FADE_IN_SECONDS = 1.0;
 
 export const Model = ({ ref, url, onField }: ModelParams) => {
-  if (!url) return;
   const { scene } = useGLTF(url);
   const addPoint = useMeasurement((s) => s.addPoint);
-
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const tool = useViewer((s) => s.tool);
   const invalidate = useThree((s) => s.invalidate);
@@ -44,12 +42,15 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   const fadeElapsedRef = useRef(0);
   const cloned = useMemo(() => scene.clone(true), [scene]);
 
+  const fieldCacheRef = useRef<{
+    source: typeof cloned;
+    field: ModelFieldInfo;
+  } | null>(null);
+
   useLayoutEffect(() => {
     const materials: Material[] = [];
-    const meshes: Mesh[] = [];
     cloned.traverse((obj) => {
       if (!(obj instanceof Mesh)) return;
-      meshes.push(obj);
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const mat of mats) {
         mat.transparent = true;
@@ -57,57 +58,85 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
         materials.push(mat);
       }
     });
-
     fadeMaterialsRef.current = materials;
     fadeElapsedRef.current = 0;
     invalidate();
   }, [cloned, invalidate]);
 
   useEffect(() => {
-    if (showAero) {
-      const box = new Box3().setFromObject(cloned);
-      const size = new Vector3();
-      const center = new Vector3();
-      box.getSize(size);
-      box.getCenter(center);
-      const maxDim = Math.max(size.x, size.y, size.z) || 1;
-      const scale = 2 / maxDim;
-      const strippedGeometries: BufferGeometry[] = [];
-      cloned.traverse((obj) => {
-        const mesh = obj as Mesh;
-        if (!(mesh as any).isMesh) return;
-        const geom = mesh.geometry.clone();
-        geom.applyMatrix4(mesh.matrixWorld);
-        if (!geom.attributes.normal) geom.computeVertexNormals();
-        const stripped = new BufferGeometry();
-        stripped.setAttribute("position", geom.attributes.position);
-        stripped.setAttribute("normal", geom.attributes.normal);
-        if (geom.index) stripped.setIndex(geom.index);
-        strippedGeometries.push(stripped);
-      });
-      let bvh: MeshBVH | null = null;
-      let merged: BufferGeometry | null = null;
-      if (strippedGeometries.length > 0) {
-        merged = mergeGeometries(strippedGeometries, false);
-        if (merged) {
-          bvh = new MeshBVH(merged);
-        }
-      }
-      const paddedRadii = new Vector3(
-        (size.x * scale) / 2,
-        (size.y * scale) / 2,
-        (size.z * scale) / 2,
-      );
-      onField({
-        center,
-        radii: paddedRadii,
-        maxRadius: Math.max(paddedRadii.x, paddedRadii.y, paddedRadii.z),
-        bvh,
-        collisionGeometry: merged,
-      });
-      invalidate();
+    const box = new Box3().setFromObject(cloned);
+    const groundOffset = -box.min.y;
+    cloned.position.y += groundOffset;
+  }, [cloned]);
+
+  useEffect(() => {
+    if (!showAero) return;
+
+    const cached = fieldCacheRef.current;
+    if (cached && cached.source === cloned) {
+      onField(cached.field);
+      return;
     }
+
+    // Recompute box post-grounding (cheap; cloned.position is already settled)
+    const box = new Box3().setFromObject(cloned);
+    const size = new Vector3();
+    const center = new Vector3();
+    box.getSize(size);
+    box.getCenter(center);
+    const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+    const strippedGeometries: BufferGeometry[] = [];
+    cloned.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (!(mesh as any).isMesh) return;
+      const geom = mesh.geometry.clone();
+      geom.applyMatrix4(mesh.matrixWorld);
+      if (!geom.attributes.normal) geom.computeVertexNormals();
+      const stripped = new BufferGeometry();
+      stripped.setAttribute("position", geom.attributes.position);
+      stripped.setAttribute("normal", geom.attributes.normal);
+      if (geom.index) stripped.setIndex(geom.index);
+      strippedGeometries.push(stripped);
+    });
+
+    let bvh: MeshBVH | null = null;
+    let merged: BufferGeometry | null = null;
+    if (strippedGeometries.length > 0) {
+      merged = mergeGeometries(strippedGeometries, false);
+      if (merged) bvh = new MeshBVH(merged);
+    }
+
+    const paddedRadii = new Vector3(
+      size.x / 2 + 0.05 * maxDim,
+      size.y / 2 + 0.05 * maxDim,
+      size.z / 2 + 0.05 * maxDim,
+    );
+
+    const field: ModelFieldInfo = {
+      center,
+      radii: paddedRadii,
+      maxRadius: Math.max(paddedRadii.x, paddedRadii.y, paddedRadii.z),
+      bvh,
+      collisionGeometry: merged,
+    };
+
+    // Dispose the previous model's cached collision geometry before replacing it.
+    if (cached && cached.source !== cloned) {
+      cached.field.collisionGeometry?.dispose();
+    }
+
+    fieldCacheRef.current = { source: cloned, field };
+    onField(field);
+    invalidate();
   }, [cloned, showAero, onField]);
+
+  useEffect(() => {
+    return () => {
+      fieldCacheRef.current?.field.collisionGeometry?.dispose();
+      fieldCacheRef.current = null;
+    };
+  }, [cloned]);
 
   useFrame((_, delta) => {
     if (fadeElapsedRef.current >= FADE_IN_SECONDS) {
