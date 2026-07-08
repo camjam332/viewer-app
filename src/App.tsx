@@ -343,6 +343,7 @@ function App() {
           height: "100%",
         }}
         camera={{ near: 0.001, far: 1000 }}
+        frameloop="demand"
         dpr={[1, 2]}
       >
         <CameraControls ref={cameraControlsRef} makeDefault />

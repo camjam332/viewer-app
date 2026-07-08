@@ -1,4 +1,4 @@
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import {
   createContext,
   useContext,
@@ -19,6 +19,7 @@ import {
 } from "three";
 import { ellipsoidPotentialFlowVelocity } from "../../utils/aerodynamics_utils";
 import type { MeshBVH } from "three-mesh-bvh";
+import { useViewer } from "../../state/state";
 
 const SPEED_COLOR_SLOW = new Color("#2b6cff");
 const SPEED_COLOR_FAST = new Color("#ff5a3c");
@@ -58,6 +59,8 @@ export const StreamlineField = ({
   repulsionStrength: number;
 }) => {
   const field = useContext(FieldContext);
+  const showAero = useViewer((s) => s.showAero);
+  const invalidate = useThree((s) => s.invalidate);
 
   // Refs to the dynamic buffer attributes so useFrame can write into them
   const posAttr = useRef<BufferAttribute | null>(null);
@@ -179,7 +182,8 @@ export const StreamlineField = ({
   const camRight = useRef(new Vector3());
 
   useFrame((state, delta) => {
-    if (!field) return;
+    if (!field || !showAero) return;
+    invalidate();
     const pA = posAttr.current;
     const cA = colAttr.current;
     const pos = particlePos.current;
@@ -373,7 +377,6 @@ export const StreamlineField = ({
         cols[(vBase + 1) * 3 + 2] = cb;
       }
     }
-
     pA.needsUpdate = true;
     cA.needsUpdate = true;
   });
