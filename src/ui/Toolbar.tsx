@@ -9,6 +9,7 @@ export const Toolbar = () => {
   const setTool = useViewer((s) => s.setTool);
   const setModelUrl = useViewer((s) => s.setModelUrl);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
+  const setEditTexture = useViewer((s) => s.setEditTexture);
   const setShowAero = useViewer((s) => s.setShowAero);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const setResetCamera = useViewer((s) => s.setResetCamera);
@@ -20,6 +21,7 @@ export const Toolbar = () => {
 
   const showAero = useViewer((s) => s.showAero);
   const isWireframe = useViewer((s) => s.isWireframe);
+  const editTexture = useViewer((s) => s.editTexture);
   const models = useViewer((s) => s.models);
   const modelUrl = useViewer((s) => s.modelUrl);
   const points = useMeasurement((s) => s.points);
@@ -46,9 +48,8 @@ export const Toolbar = () => {
 
   return (
     <div
-      className="fixed top-2 inset-x-2 z-10
-                flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
-                md:top-4 md:inset-x-auto md:left-4 md:right-auto md:w-auto md:justify-start md:flex-nowrap md:items-start"
+      className="flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+                md:w-auto md:justify-start md:flex-nowrap md:items-start"
     >
       <button
         aria-label={isOpen ? "Collapse toolbar" : "Expand toolbar"}
@@ -134,6 +135,17 @@ export const Toolbar = () => {
                 />
               </div>
             )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Edit Texture
+            </label>
+            <input
+              type="checkbox"
+              checked={editTexture}
+              onChange={() => setEditTexture()}
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
           </div>
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"

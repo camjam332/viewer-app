@@ -1,4 +1,4 @@
-import { Canvas } from "@react-three/fiber";
+import { Canvas, useThree } from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
 import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
 import {
@@ -30,6 +30,7 @@ import {
 } from "./utils/aerodynamics_utils";
 import { Toolbar } from "./ui/Toolbar";
 import { useAero } from "./state/aeroState";
+import { TextureEdit } from "./ui/TextureEdit";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -105,6 +106,15 @@ function FrameOnLoad({
   return null;
 }
 
+function InvalidateBridge() {
+  const invalidate = useThree((s) => s.invalidate);
+  const setRequestRender = useViewer((s) => s.setRequestRender);
+  useEffect(() => {
+    setRequestRender(invalidate);
+  }, [invalidate, setRequestRender]);
+  return null;
+}
+
 function App() {
   const annotations = useViewer((s) => s.annotations);
   const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
@@ -123,7 +133,6 @@ function App() {
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
-  //Start
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
   const flowDirection = useMemo(
@@ -173,7 +182,13 @@ function App() {
 
   return (
     <>
-      <Toolbar />
+      <div
+        className="fixed top-2 left-2 right-2 z-10 flex flex-col items-stretch gap-2
+             max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
+      >
+        <Toolbar />
+        <TextureEdit modelRef={modelRef} />
+      </div>
       <Sidebar />
       <Canvas
         style={{
@@ -188,6 +203,7 @@ function App() {
         dpr={[1, 2]}
       >
         <CameraControls ref={cameraControlsRef} makeDefault />
+        <InvalidateBridge />
         <ErrorBoundary
           fallbackRender={({ error }) => (
             <Html center>

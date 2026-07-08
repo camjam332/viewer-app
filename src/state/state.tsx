@@ -46,6 +46,8 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  editTexture: boolean;
+  setEditTexture: (b?: boolean) => void;
   uploadedModelUrl: string | null;
   setUploadedModelUrl: (s: string | null) => void;
   resetCamera: boolean;
@@ -75,11 +77,16 @@ type ViewerState = {
   setMarkerScale: (n: number) => void;
   showAero: boolean;
   setShowAero: (b?: boolean) => void;
+  requestRender: () => void;
+  setRequestRender: (fn: () => void) => void;
 };
 
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      editTexture: false,
+      setEditTexture: (b) =>
+        set((s) => ({ editTexture: b !== undefined ? b : !s.editTexture })),
       uploadedModelUrl: null,
       setUploadedModelUrl: (url) => set({ uploadedModelUrl: url }),
       resetCamera: false,
@@ -136,6 +143,8 @@ export const useViewer = create<ViewerState>()(
       showAero: false,
       setShowAero: (b) =>
         set((s) => ({ showAero: b !== undefined ? b : !s.showAero })),
+      requestRender: () => {},
+      setRequestRender: (fn) => set({ requestRender: fn }),
     }),
     {
       name: "viewer-storage",
