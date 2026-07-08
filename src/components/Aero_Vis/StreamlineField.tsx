@@ -250,10 +250,12 @@ export const StreamlineField = ({
             .copy(tangentTmp.current)
             .addScaledVector(normalTmp.current, repulsion);
 
-          if (dist < 0.01) {
-            px = hit.point.x + normalTmp.current.x * 0.012;
-            py = hit.point.y + normalTmp.current.y * 0.012;
-            pz = hit.point.z + normalTmp.current.z * 0.012;
+          const snapEps = maxRadius * 0.015;
+          if (dist < snapEps) {
+            const snapOffset = maxRadius * 0.02;
+            px = hit.point.x + normalTmp.current.x * snapOffset;
+            py = hit.point.y + normalTmp.current.y * snapOffset;
+            pz = hit.point.z + normalTmp.current.z * snapOffset;
           }
         }
       }
@@ -337,7 +339,7 @@ export const StreamlineField = ({
         // t=0 at tail, t=1 at head; quadratic attenuation matches original Trail
         const tSeg = n > 1 ? j / (n - 1) : 1.0;
         const atten = tSeg * tSeg;
-        const halfW = 0.05 * atten;
+        const halfW = maxRadius * 0.025 * atten;
 
         verts[(vBase + 0) * 3 + 0] = sx + crx * halfW;
         verts[(vBase + 0) * 3 + 1] = sy + cry * halfW;

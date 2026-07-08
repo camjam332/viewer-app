@@ -379,14 +379,14 @@ function App() {
           </Suspense>
         </ErrorBoundary>
 
-        {showAero && enrichedField && (
+        {showAero && enrichedField && modelField && (
           <FieldContext.Provider value={enrichedField}>
             <StreamlineField
               count={config.streamlineCount}
-              freestreamSpeed={config.freestreamSpeed}
+              freestreamSpeed={modelField.maxRadius}
               trailLength={config.trailLength}
               colorBySpeed={config.colorBySpeed}
-              surfaceInfluence={config.surfaceInfluence}
+              surfaceInfluence={modelField.maxRadius * 0.15}
               repulsionStrength={config.repulsionStrength}
             />
           </FieldContext.Provider>
