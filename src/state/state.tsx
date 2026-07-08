@@ -1,5 +1,38 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { ModelOption } from "../ui/ModelPicker";
+
+const models: ModelOption[] = [
+  {
+    modelUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/glTF-Binary/BoomBox.glb",
+    name: "Boom Box",
+    screenshotUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/BoomBox/screenshot/screenshot.jpg",
+  },
+  {
+    modelUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+    name: "Damaged Helmet",
+    screenshotUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/screenshot/screenshot.png",
+  },
+  {
+    modelUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Lantern/glTF-Binary/Lantern.glb",
+    name: "Lantern",
+    screenshotUrl:
+      "https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/Lantern/screenshot/screenshot.jpg",
+  },
+  {
+    modelUrl: "/models/triceratops_skull.glb",
+    name: "Triceratops (Scan)",
+  },
+  {
+    modelUrl: "/models/cadillac_fleetwood_brougham_1997_pink/scene.gltf",
+    name: "Cadillac (Scan)",
+  },
+];
 
 export type Tool = "orbit" | "measure" | "annotate";
 
@@ -13,6 +46,11 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  uploadedModelUrl: string | null;
+  setUploadedModelUrl: (s: string | null) => void;
+  resetCamera: boolean;
+  setResetCamera: (b: boolean) => void;
+  models: ModelOption[];
   modelUrl: string | null;
   setModelUrl: (url: string | null) => void;
   isWireframe: boolean;
@@ -42,6 +80,11 @@ type ViewerState = {
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      uploadedModelUrl: null,
+      setUploadedModelUrl: (url) => set({ uploadedModelUrl: url }),
+      resetCamera: false,
+      setResetCamera: (b) => set({ resetCamera: b }),
+      models: models,
       modelUrl: null,
       setModelUrl: (url) => set({ modelUrl: url, annotations: [] }),
       isWireframe: false,
