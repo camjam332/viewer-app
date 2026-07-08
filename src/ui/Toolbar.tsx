@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useViewer, type Tool } from "../state/state";
 import { ModelPicker } from "./ModelPicker";
 import { useMeasurement } from "../state/measurementState";
@@ -26,6 +26,8 @@ export const Toolbar = () => {
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
 
+  const [isOpen, setIsOpen] = useState(false);
+
   const distance = useMemo(() => {
     if (points.length === 2) {
       if (measurementMode === "linear") {
@@ -39,108 +41,124 @@ export const Toolbar = () => {
   }, [measurementMode, points, surfaceDistance]);
 
   return (
-    <div>
-      <select
-        className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-        onChange={(e) => setTool(e.target.value as Tool)}
-      >
-        <option
-          className="rounded bg-black/70 text-white px-2 py-1"
-          value="orbit"
-        >
-          Orbit
-        </option>
-        <option
-          className="rounded bg-black/70 text-white px-2 py-1"
-          value="measure"
-        >
-          Measure
-        </option>
-        <option
-          className="rounded bg-black/70 text-white px-2 py-1"
-          value="annotate"
-        >
-          Annotate
-        </option>
-      </select>
-      <ModelPicker
-        models={models}
-        modelUrl={modelUrl}
-        setModelUrl={(url) => {
-          setUploadedModelUrl(null);
-          setModelUrl(url);
-        }}
-        uploadedModelUrl={uploadedModelUrl}
-        onUploadModel={setUploadedModelUrl}
-      />
-      <div className="flex items-center gap-2">
-        <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-          Wireframe
-        </label>
-        <input
-          type="checkbox"
-          checked={isWireframe}
-          onChange={() => setIsWireframe()}
-          className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-        />
-      </div>
-      <div className="flex items-center gap-2">
-        <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-          Show Aeros
-        </label>
-        <input
-          type="checkbox"
-          checked={showAero}
-          onChange={() => setShowAero()}
-          className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-        />
-      </div>
+    <div
+      className="fixed top-2 inset-x-2 z-10
+                flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+                md:top-4 md:inset-x-auto md:left-4 md:right-auto md:w-auto md:justify-start md:flex-nowrap md:items-start"
+    >
       <button
+        aria-label={isOpen ? "Collapse toolbar" : "Expand toolbar"}
+        aria-expanded={isOpen}
         className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-        onClick={() => {
-          setFocusedId(null);
-          setResetCamera(true);
-        }}
+        onClick={() => setIsOpen((open) => !open)}
       >
-        Reset Camera
+        {isOpen ? "✕" : "☰"}
       </button>
-      {points.length > 0 &&
-        selectedModel &&
-        selectedModel.name.toLowerCase().includes("scan") && (
+      {isOpen && (
+        <div className="flex flex-wrap items-center justify-center gap-2 md:flex-col md:items-stretch md:justify-start">
           <select
-            onChange={(e) =>
-              setMeasurementMode(e.target.value as "linear" | "geodesic")
-            }
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            onChange={(e) => setTool(e.target.value as Tool)}
           >
             <option
-              value="linear"
               className="rounded bg-black/70 text-white px-2 py-1"
+              value="orbit"
             >
-              Linear
+              Orbit
             </option>
             <option
-              value="geodesic"
               className="rounded bg-black/70 text-white px-2 py-1"
+              value="measure"
             >
-              Geodesic
+              Measure
+            </option>
+            <option
+              className="rounded bg-black/70 text-white px-2 py-1"
+              value="annotate"
+            >
+              Annotate
             </option>
           </select>
-        )}
-      {points.length > 0 && (
-        <button
-          className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-          onClick={clearPoints}
-        >
-          Clear Points
-        </button>
-      )}
-      {distance && (
-        <p className="bg-black/70 text-white px-3 rounded">
-          {measurementMode === "linear"
-            ? `Straight: ${distance.toFixed(2)}m`
-            : surfaceDistance && `Surface: ${surfaceDistance.toFixed(2)}m`}
-        </p>
+          <ModelPicker
+            models={models}
+            modelUrl={modelUrl}
+            setModelUrl={(url) => {
+              setUploadedModelUrl(null);
+              setModelUrl(url);
+            }}
+            uploadedModelUrl={uploadedModelUrl}
+            onUploadModel={setUploadedModelUrl}
+          />
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Wireframe
+            </label>
+            <input
+              type="checkbox"
+              checked={isWireframe}
+              onChange={() => setIsWireframe()}
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Show Aeros
+            </label>
+            <input
+              type="checkbox"
+              checked={showAero}
+              onChange={() => setShowAero()}
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
+          </div>
+          <button
+            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            onClick={() => {
+              setFocusedId(null);
+              setResetCamera(true);
+            }}
+          >
+            Reset Camera
+          </button>
+          {points.length > 0 &&
+            selectedModel &&
+            selectedModel.name.toLowerCase().includes("scan") && (
+              <select
+                onChange={(e) =>
+                  setMeasurementMode(e.target.value as "linear" | "geodesic")
+                }
+                className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+              >
+                <option
+                  value="linear"
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                >
+                  Linear
+                </option>
+                <option
+                  value="geodesic"
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                >
+                  Geodesic
+                </option>
+              </select>
+            )}
+          {points.length > 0 && (
+            <button
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+              onClick={clearPoints}
+            >
+              Clear Points
+            </button>
+          )}
+          {distance && (
+            <p className="bg-black/70 text-white px-3 rounded">
+              {measurementMode === "linear"
+                ? `Straight: ${distance.toFixed(2)}m`
+                : surfaceDistance && `Surface: ${surfaceDistance.toFixed(2)}m`}
+            </p>
+          )}
+        </div>
       )}
     </div>
   );

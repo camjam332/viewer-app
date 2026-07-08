@@ -172,13 +172,7 @@ function App() {
 
   return (
     <>
-      <div
-        className="fixed top-2 inset-x-2 z-10
-                flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
-                md:top-4 md:inset-x-auto md:left-4 md:right-auto md:w-auto md:justify-start md:flex-nowrap"
-      >
-        <Toolbar />
-      </div>
+      <Toolbar />
       <Sidebar />
       <Canvas
         style={{
