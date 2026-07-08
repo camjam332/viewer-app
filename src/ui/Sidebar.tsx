@@ -21,7 +21,7 @@ export const Sidebar = () => {
   return (
     <div
       className="fixed z-10 bg-black/70 text-white backdrop-blur
-                bottom-0 left-0 right-0 max-h-[50vh] overflow-y-auto p-2
+                bottom-0 left-0 right-0 max-h-[50vh] overflow-y-auto p-2 mt-16
                 md:bottom-auto md:left-auto md:top-4 md:right-4 md:w-72 md:max-h-[80vh] md:rounded-lg"
     >
       <button
