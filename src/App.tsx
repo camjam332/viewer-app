@@ -187,7 +187,7 @@ function App() {
              max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
       >
         <Toolbar />
-        <TextureEdit modelRef={modelRef} />
+        <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
       </div>
       <Sidebar />
       <Canvas

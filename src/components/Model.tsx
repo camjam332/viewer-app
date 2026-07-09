@@ -8,11 +8,19 @@ import {
   Vector3,
   type Group,
   type Material,
+  type Texture,
 } from "three";
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
+import { useTextureEdit } from "../state/textureEditState";
 import { MeshBVH } from "three-mesh-bvh";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
+import {
+  drawStroke,
+  getTextureCanvas,
+  wrapUVCoordinate,
+  type PaintPoint,
+} from "../utils/texturePaint";
 
 type ModelParams = {
   ref: Ref<Group> | null;
@@ -29,6 +37,10 @@ export type ModelFieldInfo = {
 };
 
 const FADE_IN_SECONDS = 1.0;
+// Fraction of the texture's shorter dimension a paint stroke may jump
+// between two consecutive samples before it's treated as landing on a
+// different UV island rather than a continuation of the same stroke.
+const MAX_STROKE_JUMP_RATIO = 0.1;
 
 export const Model = ({ ref, url, onField }: ModelParams) => {
   const { scene } = useGLTF(url);
@@ -37,9 +49,18 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   const tool = useViewer((s) => s.tool);
   const invalidate = useThree((s) => s.invalidate);
   const showAero = useViewer((s) => s.showAero);
+  const editTexture = useViewer((s) => s.editTexture);
+  const activeTextureType = useTextureEdit((s) => s.activeTextureType);
+  const brushSize = useTextureEdit((s) => s.brushSize);
+  const brushColor = useTextureEdit((s) => s.brushColor);
+  const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 
   const fadeMaterialsRef = useRef<Material[]>([]);
   const fadeElapsedRef = useRef(0);
+  const paintStateRef = useRef<{
+    textureUuid: string;
+    lastPoint: PaintPoint;
+  } | null>(null);
   const cloned = useMemo(() => scene.clone(true), [scene]);
 
   const fieldCacheRef = useRef<{
@@ -153,7 +174,109 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     if (t < 1) invalidate(); // frameloop="demand" needs a nudge each step
   });
 
+  // Resolves a pointer hit to the mesh's base color texture, the live
+  // drawable canvas backing it, and the pixel this hit lands on - or null
+  // if the hit doesn't land on a paintable, textured surface.
+  const getPaintTarget = (e: ThreeEvent<PointerEvent>) => {
+    if (!e.uv || !(e.object instanceof Mesh)) return null;
+    const mats = Array.isArray(e.object.material)
+      ? e.object.material
+      : [e.object.material];
+    const material = (
+      e.face && Array.isArray(e.object.material)
+        ? e.object.material[e.face.materialIndex]
+        : mats[0]
+    ) as Record<string, unknown>;
+    const texture = material?.[activeTextureType] as Texture | undefined;
+    if (!texture) return null;
+    const canvas = getTextureCanvas(texture.uuid);
+    if (!canvas) return null;
+
+    const uv = e.uv.clone();
+    if (texture.matrixAutoUpdate) texture.updateMatrix();
+    uv.applyMatrix3(texture.matrix);
+    const wrappedU = wrapUVCoordinate(uv.x, texture.wrapS);
+    const wrappedV = wrapUVCoordinate(uv.y, texture.wrapT);
+    const point: PaintPoint = {
+      x: wrappedU * canvas.width,
+      y: (texture.flipY ? 1 - wrappedV : wrappedV) * canvas.height,
+    };
+    return { texture, canvas, point };
+  };
+
+  const stopPainting = () => {
+    if (!paintStateRef.current) return;
+    paintStateRef.current = null;
+    if (controls) controls.enabled = true;
+  };
+
+  // Safety net: if the pointer is released off the model/canvas mid-stroke,
+  // r3f's onPointerUp/onPointerLeave never fires on this object, which
+  // would otherwise leave orbit controls stuck disabled.
+  useEffect(() => {
+    window.addEventListener("pointerup", stopPainting);
+    return () => window.removeEventListener("pointerup", stopPainting);
+  }, [controls]);
+
+  const paintDownHandler = (e: ThreeEvent<PointerEvent>) => {
+    if (!editTexture) return;
+    const target = getPaintTarget(e);
+    if (!target) return;
+    e.stopPropagation();
+    if (controls) controls.enabled = false;
+    drawStroke(
+      target.canvas,
+      target.texture,
+      null,
+      target.point,
+      brushSize,
+      brushColor,
+    );
+    paintStateRef.current = {
+      textureUuid: target.texture.uuid,
+      lastPoint: target.point,
+    };
+    invalidate();
+  };
+
+  const paintMoveHandler = (e: ThreeEvent<PointerEvent>) => {
+    if (!paintStateRef.current) return;
+    const target = getPaintTarget(e);
+    if (!target) return;
+    e.stopPropagation();
+    let from =
+      target.texture.uuid === paintStateRef.current.textureUuid
+        ? paintStateRef.current.lastPoint
+        : null;
+    if (from) {
+      // A smooth drag across a UV seam can still land on a totally
+      // different part of the same texture atlas (a different UV island).
+      // Connecting that with a straight line draws a streak across
+      // unrelated texture regions, so treat implausibly large jumps as the
+      // start of a new segment instead.
+      const jump = Math.hypot(target.point.x - from.x, target.point.y - from.y);
+      const maxJump =
+        Math.min(target.canvas.width, target.canvas.height) *
+        MAX_STROKE_JUMP_RATIO;
+      if (jump > maxJump) from = null;
+    }
+    drawStroke(
+      target.canvas,
+      target.texture,
+      from,
+      target.point,
+      brushSize,
+      brushColor,
+    );
+    paintStateRef.current = {
+      textureUuid: target.texture.uuid,
+      lastPoint: target.point,
+    };
+    invalidate();
+  };
+
   const clickHandler = (e: ThreeEvent<MouseEvent>) => {
+    if (editTexture) return;
     e.stopPropagation();
     const point = e.point.clone();
     if (tool === "measure") {
@@ -174,7 +297,15 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
 
   return (
     <>
-      <primitive ref={ref} onClick={clickHandler} object={cloned} />
+      <primitive
+        ref={ref}
+        onClick={clickHandler}
+        onPointerDown={paintDownHandler}
+        onPointerMove={paintMoveHandler}
+        onPointerUp={stopPainting}
+        onPointerLeave={stopPainting}
+        object={cloned}
+      />
     </>
   );
 };

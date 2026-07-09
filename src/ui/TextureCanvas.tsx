@@ -1,6 +1,12 @@
 import { useEffect, useRef, type PointerEvent } from "react";
 import type { Texture } from "three";
 import { useViewer } from "../state/state";
+import { useTextureEdit } from "../state/textureEditState";
+import {
+  drawStroke,
+  registerTextureCanvas,
+  unregisterTextureCanvas,
+} from "../utils/texturePaint";
 
 type TextureCanvasParams = {
   src: string;
@@ -8,14 +14,13 @@ type TextureCanvasParams = {
   className?: string;
 };
 
-const BRUSH_SIZE = 4;
-const BRUSH_COLOR = "#ff0000";
-
 export const TextureCanvas = ({
   src,
   texture,
   className,
 }: TextureCanvasParams) => {
+  const brushSize = useTextureEdit((s) => s.brushSize);
+  const brushColor = useTextureEdit((s) => s.brushColor);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
@@ -34,9 +39,12 @@ export const TextureCanvas = ({
       // strokes drawn onto it are picked up by the renderer on invalidate.
       texture.image = canvas;
       texture.needsUpdate = true;
+      // Makes this canvas paintable from the 3D view too, not just here.
+      registerTextureCanvas(texture.uuid, canvas);
       requestRender();
     };
     image.src = src;
+    return () => unregisterTextureCanvas(texture.uuid, canvas);
   }, [src, texture, requestRender]);
 
   const getPoint = (e: PointerEvent<HTMLCanvasElement>) => {
@@ -56,18 +64,18 @@ export const TextureCanvas = ({
 
   const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
     if (!isDrawingRef.current || !lastPointRef.current) return;
-    const ctx = canvasRef.current?.getContext("2d");
-    if (!ctx) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const point = getPoint(e);
-    ctx.strokeStyle = BRUSH_COLOR;
-    ctx.lineWidth = BRUSH_SIZE;
-    ctx.lineCap = "round";
-    ctx.beginPath();
-    ctx.moveTo(lastPointRef.current.x, lastPointRef.current.y);
-    ctx.lineTo(point.x, point.y);
-    ctx.stroke();
+    drawStroke(
+      canvas,
+      texture,
+      lastPointRef.current,
+      point,
+      brushSize,
+      brushColor,
+    );
     lastPointRef.current = point;
-    texture.needsUpdate = true;
     requestRender();
   };
 
