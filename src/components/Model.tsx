@@ -16,7 +16,9 @@ import { useTextureEdit } from "../state/textureEditState";
 import { MeshBVH } from "three-mesh-bvh";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
+  beginPaintSession,
   drawStroke,
+  endPaintSession,
   getTextureCanvas,
   wrapUVCoordinate,
   type PaintPoint,
@@ -58,7 +60,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   const fadeMaterialsRef = useRef<Material[]>([]);
   const fadeElapsedRef = useRef(0);
   const paintStateRef = useRef<{
-    textureUuid: string;
+    texture: Texture;
     lastPoint: PaintPoint;
   } | null>(null);
   const cloned = useMemo(() => scene.clone(true), [scene]);
@@ -206,8 +208,10 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
 
   const stopPainting = () => {
     if (!paintStateRef.current) return;
+    endPaintSession(paintStateRef.current.texture);
     paintStateRef.current = null;
     if (controls) controls.enabled = true;
+    invalidate();
   };
 
   // Safety net: if the pointer is released off the model/canvas mid-stroke,
@@ -224,6 +228,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     if (!target) return;
     e.stopPropagation();
     if (controls) controls.enabled = false;
+    beginPaintSession(target.texture);
     drawStroke(
       target.canvas,
       target.texture,
@@ -233,32 +238,41 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
       brushColor,
     );
     paintStateRef.current = {
-      textureUuid: target.texture.uuid,
+      texture: target.texture,
       lastPoint: target.point,
     };
     invalidate();
   };
 
   const paintMoveHandler = (e: ThreeEvent<PointerEvent>) => {
-    if (!paintStateRef.current) return;
+    // Multiple meshes under the same ray (common when several share a
+    // texture) can each dispatch this handler within a single native
+    // pointer event. Capture the ref's value once so a paintStateRef
+    // mutation from another dispatch in that same batch (e.g. stopPainting
+    // firing for a mesh that's no longer intersected) can't null it out
+    // between this check and its later use below.
+    const paintState = paintStateRef.current;
+    if (!paintState) return;
     const target = getPaintTarget(e);
     if (!target) return;
     e.stopPropagation();
-    let from =
-      target.texture.uuid === paintStateRef.current.textureUuid
-        ? paintStateRef.current.lastPoint
-        : null;
+    const sameTexture = target.texture.uuid === paintState.texture.uuid;
+    let from = sameTexture ? paintState.lastPoint : null;
     if (from) {
       // A smooth drag across a UV seam can still land on a totally
-      // different part of the same texture atlas (a different UV island).
-      // Connecting that with a straight line draws a streak across
-      // unrelated texture regions, so treat implausibly large jumps as the
-      // start of a new segment instead.
+      // different part of the same texture atlas (a different UV
+      // island). Connecting that with a straight line draws a streak
+      // across unrelated texture regions, so treat implausibly large
+      // jumps as the start of a new segment instead.
       const jump = Math.hypot(target.point.x - from.x, target.point.y - from.y);
       const maxJump =
         Math.min(target.canvas.width, target.canvas.height) *
         MAX_STROKE_JUMP_RATIO;
       if (jump > maxJump) from = null;
+    }
+    if (!sameTexture) {
+      endPaintSession(paintState.texture);
+      beginPaintSession(target.texture);
     }
     drawStroke(
       target.canvas,
@@ -269,7 +283,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
       brushColor,
     );
     paintStateRef.current = {
-      textureUuid: target.texture.uuid,
+      texture: target.texture,
       lastPoint: target.point,
     };
     invalidate();

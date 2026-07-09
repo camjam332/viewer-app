@@ -3,7 +3,9 @@ import type { Texture } from "three";
 import { useViewer } from "../state/state";
 import { useTextureEdit } from "../state/textureEditState";
 import {
+  beginPaintSession,
   drawStroke,
+  endPaintSession,
   registerTextureCanvas,
   unregisterTextureCanvas,
 } from "../utils/texturePaint";
@@ -60,6 +62,7 @@ export const TextureCanvas = ({
     e.currentTarget.setPointerCapture(e.pointerId);
     isDrawingRef.current = true;
     lastPointRef.current = getPoint(e);
+    beginPaintSession(texture);
   };
 
   const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
@@ -80,6 +83,10 @@ export const TextureCanvas = ({
   };
 
   const stopDrawing = () => {
+    if (isDrawingRef.current) {
+      endPaintSession(texture);
+      requestRender();
+    }
     isDrawingRef.current = false;
     lastPointRef.current = null;
   };

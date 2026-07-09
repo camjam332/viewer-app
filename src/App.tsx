@@ -1,6 +1,12 @@
 import { Canvas, useThree } from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
-import { Html, Environment, CameraControls, Grid } from "@react-three/drei";
+import {
+  Html,
+  Environment,
+  CameraControls,
+  Grid,
+  Stats,
+} from "@react-three/drei";
 import {
   Suspense,
   useCallback,
@@ -31,6 +37,7 @@ import {
 import { Toolbar } from "./ui/Toolbar";
 import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
+import { registerRenderer } from "./utils/texturePaint";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -108,10 +115,14 @@ function FrameOnLoad({
 
 function InvalidateBridge() {
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
   const setRequestRender = useViewer((s) => s.setRequestRender);
   useEffect(() => {
     setRequestRender(invalidate);
   }, [invalidate, setRequestRender]);
+  useEffect(() => {
+    registerRenderer(gl);
+  }, [gl]);
   return null;
 }
 
@@ -202,6 +213,7 @@ function App() {
         frameloop="demand"
         dpr={[1, 2]}
       >
+        <Stats />
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
         <ErrorBoundary
