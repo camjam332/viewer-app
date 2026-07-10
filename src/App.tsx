@@ -138,6 +138,8 @@ function App() {
   const modelUrl = useViewer((s) => s.modelUrl);
   const setResetCamera = useViewer((s) => s.setResetCamera);
   const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
+  const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
+  const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
   const resetCamera = useViewer((s) => s.resetCamera);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
@@ -167,6 +169,8 @@ function App() {
 
   useEffect(() => {
     setModelField(null);
+    setShowTransformControls(false);
+    setMeshDeformation(false);
   }, [effectiveModelUrl]);
 
   useEffect(() => {
