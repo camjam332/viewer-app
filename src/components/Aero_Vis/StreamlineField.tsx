@@ -62,6 +62,23 @@ export const StreamlineField = ({
   const showAero = useViewer((s) => s.showAero);
   const invalidate = useThree((s) => s.invalidate);
 
+  // useFrame below calls invalidate() every tick while showAero is on,
+  // which keeps frameloop="demand" rendering continuously for as long as
+  // aero visualization is active - fine while the tab is actually visible,
+  // wasteful (full per-particle physics + a render, with nothing on screen
+  // to show for it) while it's in the background. Pausing on
+  // document.hidden stops both; nothing else calls invalidate() while
+  // paused, so explicitly kick off one frame when the tab becomes visible
+  // again to resume.
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (!document.hidden && showAero) invalidate();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () =>
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [invalidate, showAero]);
+
   // Refs to the dynamic buffer attributes so useFrame can write into them
   const posAttr = useRef<BufferAttribute | null>(null);
   const colAttr = useRef<BufferAttribute | null>(null);
@@ -182,7 +199,7 @@ export const StreamlineField = ({
   const camRight = useRef(new Vector3());
 
   useFrame((state, delta) => {
-    if (!field || !showAero) return;
+    if (!field || !showAero || document.hidden) return;
     invalidate();
     const pA = posAttr.current;
     const cA = colAttr.current;

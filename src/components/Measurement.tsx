@@ -8,14 +8,16 @@ import type {
   GeodesicWorkerResponse,
   MeshBuffers,
 } from "../workers/geodesicWorker";
+import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
 
 type MeasurementProps = {
   modelRef: RefObject<Object3D | null>;
+  modelUrl: string | null;
 };
 
 type DrapedResult = { points: Vector3[]; distance: number };
 
-export const Measurement = ({ modelRef }: MeasurementProps) => {
+export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
   const markerScale = useViewer((s) => s.markerScale);
@@ -70,7 +72,13 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
     };
   }, []);
 
-  // Rebuild the mesh graph only when the model itself changes.
+  // Rebuild the mesh graph only when the model itself changes. Depends on
+  // modelUrl rather than modelRef.current: mutating a ref doesn't trigger a
+  // re-render, so an effect keyed on ref.current only re-runs when some
+  // *other* state change happens to cause a re-render around the same
+  // time - true here today (clearPoints() on load coincides), but that's
+  // incidental, not guaranteed, and could silently rebuild the graph
+  // against a stale or wrong mesh if that coincidence ever breaks.
   useEffect(() => {
     const worker = workerRef.current;
     if (!worker) return;
@@ -116,8 +124,7 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
       meshes,
     };
     worker.postMessage(message, transfer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modelRef.current]); // rebuild only when the model itself changes
+  }, [modelUrl]);
 
   // Recompute the geodesic path whenever the measurement points (or the
   // freshly-built graph) change.
@@ -154,8 +161,12 @@ export const Measurement = ({ modelRef }: MeasurementProps) => {
     <>
       {points.map((v, i) => {
         return (
-          <mesh scale={0.01 * markerScale} key={i} position={v}>
-            <sphereGeometry />
+          <mesh
+            scale={0.01 * markerScale}
+            key={i}
+            position={v}
+            geometry={MARKER_SPHERE_GEOMETRY}
+          >
             <meshBasicMaterial color={"red"} depthTest={false} />
           </mesh>
         );

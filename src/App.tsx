@@ -263,7 +263,7 @@ function App() {
               focusedId={focusedId}
               resetCameraPos={resetCamera}
             />
-            <Measurement modelRef={modelRef} />
+            <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
             <Annotations />
             <Environment preset="city" />
           </Suspense>

@@ -2,6 +2,7 @@ import { Fragment } from "react";
 import { useViewer } from "../state/state";
 import { Html } from "@react-three/drei";
 import { MapPin } from "lucide-react";
+import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
 
 export const Annotations = () => {
   const annotations = useViewer((s) => s.annotations);
@@ -41,8 +42,8 @@ export const Annotations = () => {
               }}
               scale={0.01 * markerScale}
               position={a.position}
+              geometry={MARKER_SPHERE_GEOMETRY}
             >
-              <sphereGeometry />
               <meshBasicMaterial
                 color={selectedId === a.id ? "blue" : "black"}
               />
