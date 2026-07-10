@@ -1,5 +1,7 @@
 import { create } from "zustand";
 
+export type PaintTool = "brush" | "eraser";
+
 type TextureEditState = {
   brushSize: number;
   setBrushSize: (n: number) => void;
@@ -7,6 +9,8 @@ type TextureEditState = {
   setBrushColor: (s: string) => void;
   activeTextureType: string;
   setActiveTextureType: (s: string) => void;
+  tool: PaintTool;
+  setTool: (t: PaintTool) => void;
 };
 
 export const useTextureEdit = create<TextureEditState>((set) => ({
@@ -16,4 +20,6 @@ export const useTextureEdit = create<TextureEditState>((set) => ({
   setBrushColor: (s) => set({ brushColor: s }),
   activeTextureType: "map",
   setActiveTextureType: (s) => set({ activeTextureType: s }),
+  tool: "brush",
+  setTool: (t) => set({ tool: t }),
 }));

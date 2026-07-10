@@ -4,8 +4,11 @@ import { useEffect, useLayoutEffect, useMemo, useRef, type Ref } from "react";
 import {
   Box3,
   BufferGeometry,
+  DoubleSide,
   Mesh,
+  Vector2,
   Vector3,
+  type BufferAttribute,
   type Group,
   type Material,
   type Texture,
@@ -48,17 +51,20 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   const { scene } = useGLTF(url);
   const addPoint = useMeasurement((s) => s.addPoint);
   const addAnnotation = useViewer((s) => s.addAnnotation);
-  const tool = useViewer((s) => s.tool);
   const invalidate = useThree((s) => s.invalidate);
+
+  const tool = useViewer((s) => s.tool);
   const showAero = useViewer((s) => s.showAero);
   const editTexture = useViewer((s) => s.editTexture);
   const activeTextureType = useTextureEdit((s) => s.activeTextureType);
   const brushSize = useTextureEdit((s) => s.brushSize);
   const brushColor = useTextureEdit((s) => s.brushColor);
+  const paintTool = useTextureEdit((s) => s.tool);
   const controls = useThree((s) => s.controls) as { enabled: boolean } | null;
 
   const fadeMaterialsRef = useRef<Material[]>([]);
   const fadeElapsedRef = useRef(0);
+  const brushCursorRef = useRef<Mesh>(null);
   const paintStateRef = useRef<{
     texture: Texture;
     lastPoint: PaintPoint;
@@ -176,6 +182,62 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     if (t < 1) invalidate(); // frameloop="demand" needs a nudge each step
   });
 
+  // Brush size is defined in texture-pixel units, and texel density (world
+  // units covered per UV unit) varies per mesh/triangle - so a fixed-size
+  // cursor wouldn't actually represent what's about to get painted. This
+  // derives the local UV-to-world scale from the hit triangle (the same
+  // tangent/bitangent math used for normal mapping) and uses it to convert
+  // the brush's pixel radius into a world-space radius at that exact spot.
+  const computeWorldBrushRadius = (
+    object: Mesh,
+    face: { a: number; b: number; c: number },
+    canvas: HTMLCanvasElement,
+    brushSizePixels: number,
+  ): number => {
+    const uvAttr = object.geometry.attributes.uv;
+    const posAttr = object.geometry.attributes.position;
+    if (!uvAttr) return 0;
+
+    const p0 = new Vector3()
+      .fromBufferAttribute(posAttr, face.a)
+      .applyMatrix4(object.matrixWorld);
+    const p1 = new Vector3()
+      .fromBufferAttribute(posAttr, face.b)
+      .applyMatrix4(object.matrixWorld);
+    const p2 = new Vector3()
+      .fromBufferAttribute(posAttr, face.c)
+      .applyMatrix4(object.matrixWorld);
+
+    const uv0 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.a);
+    const uv1 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.b);
+    const uv2 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.c);
+
+    const e1 = p1.clone().sub(p0);
+    const e2 = p2.clone().sub(p0);
+    const duv1 = uv1.clone().sub(uv0);
+    const duv2 = uv2.clone().sub(uv0);
+
+    const det = duv1.x * duv2.y - duv2.x * duv1.y;
+    if (Math.abs(det) < 1e-8) return 0;
+    const invDet = 1 / det;
+
+    const tangent = e1
+      .clone()
+      .multiplyScalar(duv2.y)
+      .addScaledVector(e2, -duv1.y)
+      .multiplyScalar(invDet);
+    const bitangent = e2
+      .clone()
+      .multiplyScalar(duv1.x)
+      .addScaledVector(e1, -duv2.x)
+      .multiplyScalar(invDet);
+
+    const worldPerUV = (tangent.length() + bitangent.length()) / 2;
+    const brushRadiusUV =
+      brushSizePixels / 2 / ((canvas.width + canvas.height) / 2);
+    return worldPerUV * brushRadiusUV;
+  };
+
   // Resolves a pointer hit to the mesh's base color texture, the live
   // drawable canvas backing it, and the pixel this hit lands on - or null
   // if the hit doesn't land on a paintable, textured surface.
@@ -206,6 +268,51 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     return { texture, canvas, point };
   };
 
+  // Updates the ring mesh that previews the brush's footprint on the
+  // surface under the cursor. Mutated imperatively via ref (not React
+  // state) since this runs on every pointermove.
+  const updateBrushCursor = (
+    target: ReturnType<typeof getPaintTarget>,
+    e: ThreeEvent<PointerEvent>,
+  ) => {
+    const cursorMesh = brushCursorRef.current;
+    if (!cursorMesh) return;
+    if (!target || !e.face || !(e.object instanceof Mesh)) {
+      cursorMesh.visible = false;
+      invalidate();
+      return;
+    }
+    const radius = computeWorldBrushRadius(
+      e.object,
+      e.face,
+      target.canvas,
+      brushSize,
+    );
+    if (radius <= 0) {
+      cursorMesh.visible = false;
+      invalidate();
+      return;
+    }
+    const worldNormal = e.face.normal
+      .clone()
+      .transformDirection(e.object.matrixWorld);
+    cursorMesh.position.copy(e.point);
+    cursorMesh.quaternion.setFromUnitVectors(new Vector3(0, 0, 1), worldNormal);
+    cursorMesh.scale.setScalar(radius);
+    cursorMesh.visible = true;
+    invalidate();
+  };
+
+  const hideBrushCursor = () => {
+    if (brushCursorRef.current) brushCursorRef.current.visible = false;
+    invalidate();
+  };
+
+  useEffect(() => {
+    if (!editTexture) hideBrushCursor();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editTexture]);
+
   const stopPainting = () => {
     if (!paintStateRef.current) return;
     endPaintSession(paintStateRef.current.texture);
@@ -215,8 +322,11 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   };
 
   // Safety net: if the pointer is released off the model/canvas mid-stroke,
-  // r3f's onPointerUp/onPointerLeave never fires on this object, which
-  // would otherwise leave orbit controls stuck disabled.
+  // r3f's onPointerUp never fires on this object, which would otherwise
+  // leave orbit controls stuck disabled. (There's deliberately no
+  // onPointerLeave here: with several meshes sharing one handler, r3f fires
+  // it the instant the ray crosses from one child mesh to another, which
+  // would kill the stroke every time a drag crosses a mesh boundary.)
   useEffect(() => {
     window.addEventListener("pointerup", stopPainting);
     return () => window.removeEventListener("pointerup", stopPainting);
@@ -236,6 +346,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
       target.point,
       brushSize,
       brushColor,
+      paintTool === "eraser",
     );
     paintStateRef.current = {
       texture: target.texture,
@@ -245,6 +356,11 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   };
 
   const paintMoveHandler = (e: ThreeEvent<PointerEvent>) => {
+    if (!editTexture) return;
+    const target = getPaintTarget(e);
+    if (target) e.stopPropagation();
+    updateBrushCursor(target, e);
+
     // Multiple meshes under the same ray (common when several share a
     // texture) can each dispatch this handler within a single native
     // pointer event. Capture the ref's value once so a paintStateRef
@@ -252,10 +368,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     // firing for a mesh that's no longer intersected) can't null it out
     // between this check and its later use below.
     const paintState = paintStateRef.current;
-    if (!paintState) return;
-    const target = getPaintTarget(e);
-    if (!target) return;
-    e.stopPropagation();
+    if (!paintState || !target) return;
     const sameTexture = target.texture.uuid === paintState.texture.uuid;
     let from = sameTexture ? paintState.lastPoint : null;
     if (from) {
@@ -281,6 +394,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
       target.point,
       brushSize,
       brushColor,
+      paintTool === "eraser",
     );
     paintStateRef.current = {
       texture: target.texture,
@@ -317,9 +431,20 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
         onPointerDown={paintDownHandler}
         onPointerMove={paintMoveHandler}
         onPointerUp={stopPainting}
-        onPointerLeave={stopPainting}
+        onPointerLeave={hideBrushCursor}
         object={cloned}
       />
+      <mesh ref={brushCursorRef} visible={false} raycast={() => null}>
+        <ringGeometry args={[0.85, 1, 48]} />
+        <meshBasicMaterial
+          color="white"
+          side={DoubleSide}
+          transparent
+          opacity={0.85}
+          depthTest={false}
+          depthWrite={false}
+        />
+      </mesh>
     </>
   );
 };

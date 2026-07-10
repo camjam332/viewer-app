@@ -25,11 +25,24 @@ export const wrapUVCoordinate = (value: number, wrap: number): number => {
 // originally created the canvas (the flat 2D panel vs. the 3D model).
 const canvasRegistry = new Map<string, HTMLCanvasElement>();
 
+// Snapshot of each texture's pixels as they were the moment its canvas was
+// first registered (i.e. before any painting). The eraser paints these
+// pixels back rather than a flat color, so erasing reveals the original
+// texture instead of leaving a solid patch.
+const originalCanvasRegistry = new Map<string, HTMLCanvasElement>();
+
 export const registerTextureCanvas = (
   uuid: string,
   canvas: HTMLCanvasElement,
 ) => {
   canvasRegistry.set(uuid, canvas);
+  if (!originalCanvasRegistry.has(uuid)) {
+    const snapshot = document.createElement("canvas");
+    snapshot.width = canvas.width;
+    snapshot.height = canvas.height;
+    snapshot.getContext("2d")?.drawImage(canvas, 0, 0);
+    originalCanvasRegistry.set(uuid, snapshot);
+  }
 };
 
 export const unregisterTextureCanvas = (
@@ -164,6 +177,94 @@ const uploadDirtyRegion = (
   );
 };
 
+const strokePath = (
+  ctx: CanvasRenderingContext2D,
+  from: PaintPoint | null,
+  to: PaintPoint,
+  brushSize: number,
+) => {
+  ctx.lineWidth = brushSize;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  if (from) {
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x, to.y);
+    ctx.stroke();
+  } else {
+    // no previous point (first sample of a stroke) - leave a dot instead
+    // of nothing
+    ctx.arc(to.x, to.y, brushSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  }
+};
+
+// Reused across erase calls instead of allocating a new canvas per stroke
+// sample. Sized to a "capacity" that only grows, never shrinks - resizing a
+// canvas element (setting .width/.height) forces a full backing-store
+// reallocation, which is expensive enough on its own to reintroduce the
+// same kind of per-sample GPU/canvas stall the dirty-rect upload fix was
+// meant to eliminate. The dirty rect's exact size varies continuously with
+// stroke direction, so sizing to it exactly would reallocate on nearly
+// every sample.
+let scratchCanvas: HTMLCanvasElement | null = null;
+let scratchCapacityW = 0;
+let scratchCapacityH = 0;
+
+const getScratchCanvas = (w: number, h: number): HTMLCanvasElement => {
+  if (!scratchCanvas) scratchCanvas = document.createElement("canvas");
+  if (w > scratchCapacityW || h > scratchCapacityH) {
+    scratchCapacityW = Math.max(w, scratchCapacityW);
+    scratchCapacityH = Math.max(h, scratchCapacityH);
+    scratchCanvas.width = scratchCapacityW;
+    scratchCanvas.height = scratchCapacityH;
+  }
+  return scratchCanvas;
+};
+
+// "Erasing" means revealing the original texture, not painting a flat
+// color. Draws the brush shape (opaque, any color) onto a small scratch
+// canvas sized to the dirty rect, then uses 'source-in' compositing to
+// replace those opaque pixels with the matching region of the original
+// texture snapshot, and finally composites just that onto the live canvas -
+// so only the pixels actually under the brush are touched.
+const eraseRegion = (
+  liveCanvas: HTMLCanvasElement,
+  texture: Texture,
+  from: PaintPoint | null,
+  to: PaintPoint,
+  brushSize: number,
+  rect: { x: number; y: number; w: number; h: number },
+) => {
+  const original = originalCanvasRegistry.get(texture.uuid);
+  const liveCtx = liveCanvas.getContext("2d");
+  if (!original || !liveCtx) return;
+
+  const x = Math.max(0, Math.floor(rect.x));
+  const y = Math.max(0, Math.floor(rect.y));
+  const w = Math.min(liveCanvas.width, Math.ceil(rect.x + rect.w)) - x;
+  const h = Math.min(liveCanvas.height, Math.ceil(rect.y + rect.h)) - y;
+  if (w <= 0 || h <= 0) return;
+
+  const scratch = getScratchCanvas(w, h);
+  const sctx = scratch.getContext("2d");
+  if (!sctx) return;
+
+  sctx.clearRect(0, 0, w, h);
+  sctx.globalCompositeOperation = "source-over";
+  sctx.fillStyle = "#000";
+  sctx.strokeStyle = "#000";
+  sctx.save();
+  sctx.translate(-x, -y);
+  strokePath(sctx, from, to, brushSize);
+  sctx.restore();
+
+  sctx.globalCompositeOperation = "source-in";
+  sctx.drawImage(original, x, y, w, h, 0, 0, w, h);
+  sctx.globalCompositeOperation = "source-over";
+
+  liveCtx.drawImage(scratch, 0, 0, w, h, x, y, w, h);
+};
+
 export const drawStroke = (
   canvas: HTMLCanvasElement,
   texture: Texture,
@@ -171,20 +272,11 @@ export const drawStroke = (
   to: PaintPoint,
   brushSize: number,
   brushColor: string,
+  erase = false,
 ) => {
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.strokeStyle = brushColor;
-  ctx.fillStyle = brushColor;
-  ctx.lineWidth = brushSize;
-  ctx.lineCap = "round";
   const pad = brushSize / 2 + 1;
   let dirtyRect;
   if (from) {
-    ctx.beginPath();
-    ctx.moveTo(from.x, from.y);
-    ctx.lineTo(to.x, to.y);
-    ctx.stroke();
     const minX = Math.min(from.x, to.x) - pad;
     const minY = Math.min(from.y, to.y) - pad;
     dirtyRect = {
@@ -194,12 +286,17 @@ export const drawStroke = (
       h: Math.max(from.y, to.y) + pad - minY,
     };
   } else {
-    // no previous point (first sample of a stroke) - leave a dot instead
-    // of nothing
-    ctx.beginPath();
-    ctx.arc(to.x, to.y, brushSize / 2, 0, Math.PI * 2);
-    ctx.fill();
     dirtyRect = { x: to.x - pad, y: to.y - pad, w: pad * 2, h: pad * 2 };
+  }
+
+  if (erase) {
+    eraseRegion(canvas, texture, from, to, brushSize, dirtyRect);
+  } else {
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = brushColor;
+    ctx.strokeStyle = brushColor;
+    strokePath(ctx, from, to, brushSize);
   }
   uploadDirtyRegion(texture, canvas, dirtyRect);
 };

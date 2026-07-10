@@ -39,6 +39,8 @@ export const TextureEdit = ({ modelRef, modelUrl }: TextureEditParams) => {
   const setEditTexture = useViewer((s) => s.setEditTexture);
   const activeTextureType = useTextureEdit((s) => s.activeTextureType);
   const setActiveTextureType = useTextureEdit((s) => s.setActiveTextureType);
+  const tool = useTextureEdit((s) => s.tool);
+  const setTool = useTextureEdit((s) => s.setTool);
 
   const [textures, setTextures] = useState<ExtractedTexture[]>([]);
   const availableTextureTypes = [
@@ -121,13 +123,36 @@ export const TextureEdit = ({ modelRef, modelUrl }: TextureEditParams) => {
       <p className="text-white text-sm font-medium mb-2 flex-shrink-0">
         Edit Texture
       </p>
+      <div className="flex gap-2 mb-2 flex-shrink-0">
+        <button
+          type="button"
+          className={`flex-1 rounded px-3 py-1 text-sm text-white ${
+            tool === "brush" ? "bg-blue-600" : "bg-white/10 hover:bg-white/20"
+          }`}
+          onClick={() => setTool("brush")}
+        >
+          Brush
+        </button>
+        <button
+          type="button"
+          className={`flex-1 rounded px-3 py-1 text-sm text-white ${
+            tool === "eraser"
+              ? "bg-blue-600"
+              : "bg-white/10 hover:bg-white/20"
+          }`}
+          onClick={() => setTool("eraser")}
+        >
+          Eraser
+        </button>
+      </div>
       <label className="text-white text-sm font-medium mb-2 flex-shrink-0">
         Choose Color:
       </label>
       <input
         type="color"
         id="colorPicker"
-        className="h-10 w-10 cursor-pointer rounded-lg border border-gray-300 bg-transparent p-0 [::-webkit-color-swatch-wrapper]:p-0 [::-webkit-color-swatch]:rounded-lg [::-webkit-color-swatch]:border-none [::-moz-color-swatch]:rounded-lg [::-moz-color-swatch]:border-none"
+        disabled={tool === "eraser"}
+        className="h-10 w-10 cursor-pointer rounded-lg border border-gray-300 bg-transparent p-0 disabled:opacity-40 disabled:cursor-not-allowed [::-webkit-color-swatch-wrapper]:p-0 [::-webkit-color-swatch]:rounded-lg [::-webkit-color-swatch]:border-none [::-moz-color-swatch]:rounded-lg [::-moz-color-swatch]:border-none"
         value={brushColor}
         onChange={(v) => setBrushColor(v.target.value)}
       />

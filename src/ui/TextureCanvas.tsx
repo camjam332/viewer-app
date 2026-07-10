@@ -1,4 +1,4 @@
-import { useEffect, useRef, type PointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Texture } from "three";
 import { useViewer } from "../state/state";
 import { useTextureEdit } from "../state/textureEditState";
@@ -23,10 +23,14 @@ export const TextureCanvas = ({
 }: TextureCanvasParams) => {
   const brushSize = useTextureEdit((s) => s.brushSize);
   const brushColor = useTextureEdit((s) => s.brushColor);
+  const tool = useTextureEdit((s) => s.tool);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const isDrawingRef = useRef(false);
   const lastPointRef = useRef<{ x: number; y: number } | null>(null);
   const requestRender = useViewer((s) => s.requestRender);
+  const [cursorPos, setCursorPos] = useState<{ x: number; y: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -58,6 +62,11 @@ export const TextureCanvas = ({
     };
   };
 
+  const getCssPoint = (e: PointerEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+  };
+
   const handlePointerDown = (e: PointerEvent<HTMLCanvasElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId);
     isDrawingRef.current = true;
@@ -66,6 +75,7 @@ export const TextureCanvas = ({
   };
 
   const handlePointerMove = (e: PointerEvent<HTMLCanvasElement>) => {
+    setCursorPos(getCssPoint(e));
     if (!isDrawingRef.current || !lastPointRef.current) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -77,9 +87,14 @@ export const TextureCanvas = ({
       point,
       brushSize,
       brushColor,
+      tool === "eraser",
     );
     lastPointRef.current = point;
     requestRender();
+  };
+
+  const handlePointerEnter = (e: PointerEvent<HTMLCanvasElement>) => {
+    setCursorPos(getCssPoint(e));
   };
 
   const stopDrawing = () => {
@@ -91,14 +106,39 @@ export const TextureCanvas = ({
     lastPointRef.current = null;
   };
 
+  const handlePointerLeave = () => {
+    stopDrawing();
+    setCursorPos(null);
+  };
+
+  const canvas = canvasRef.current;
+  const cursorSize =
+    canvas && canvas.width > 0
+      ? brushSize * (canvas.clientWidth / canvas.width)
+      : brushSize;
+
   return (
-    <canvas
-      ref={canvasRef}
-      className={className}
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={stopDrawing}
-      onPointerLeave={stopDrawing}
-    />
+    <div className="relative w-fit mx-auto">
+      <canvas
+        ref={canvasRef}
+        className={className}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerEnter={handlePointerEnter}
+        onPointerUp={stopDrawing}
+        onPointerLeave={handlePointerLeave}
+      />
+      {cursorPos && (
+        <div
+          className="pointer-events-none absolute rounded-full border-2 border-white mix-blend-difference"
+          style={{
+            width: cursorSize,
+            height: cursorSize,
+            left: cursorPos.x - cursorSize / 2,
+            top: cursorPos.y - cursorSize / 2,
+          }}
+        />
+      )}
+    </div>
   );
 };
