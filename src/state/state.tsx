@@ -46,6 +46,10 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  transformControlsMode: "translate" | "rotate" | "scale";
+  setTransformControlsMode: (s: "translate" | "rotate" | "scale") => void;
+  showTransformControls: boolean;
+  setShowTransformControls: (b?: boolean) => void;
   editTexture: boolean;
   setEditTexture: (b?: boolean) => void;
   uploadedModelUrl: string | null;
@@ -84,6 +88,13 @@ type ViewerState = {
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      transformControlsMode: "translate",
+      setTransformControlsMode: (s) => set({ transformControlsMode: s }),
+      showTransformControls: false,
+      setShowTransformControls: (b) =>
+        set((s) => ({
+          showTransformControls: b !== undefined ? b : !s.showTransformControls,
+        })),
       editTexture: false,
       setEditTexture: (b) =>
         set((s) => ({ editTexture: b !== undefined ? b : !s.editTexture })),

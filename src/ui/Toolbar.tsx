@@ -16,6 +16,8 @@ export const Toolbar = () => {
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
   const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
   const setConfig = useAero((s) => s.setConfig);
+  const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
+  const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -29,6 +31,7 @@ export const Toolbar = () => {
   const surfaceDistance = useMeasurement((s) => s.surfaceDistance);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const config = useAero((s) => s.config);
+  const showTransformControls = useViewer((s) => s.showTransformControls);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
 
@@ -146,6 +149,46 @@ export const Toolbar = () => {
               onChange={() => setEditTexture()}
               className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
             />
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Show Transform Controls
+            </label>
+            <input
+              type="checkbox"
+              checked={showTransformControls}
+              onChange={() => setShowTransformControls()}
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
+            {showTransformControls && (
+              <select
+                className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+                onChange={(e) =>
+                  setTransformControlsMode(
+                    e.target.value as "translate" | "rotate" | "scale",
+                  )
+                }
+              >
+                <option
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                  value="translate"
+                >
+                  Translate
+                </option>
+                <option
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                  value="rotate"
+                >
+                  Rotate
+                </option>
+                <option
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                  value="scale"
+                >
+                  Scale
+                </option>
+              </select>
+            )}
           </div>
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"

@@ -6,6 +6,7 @@ import {
   CameraControls,
   Grid,
   Stats,
+  TransformControls,
 } from "@react-three/drei";
 import {
   Suspense,
@@ -128,12 +129,14 @@ function InvalidateBridge() {
 
 function App() {
   const annotations = useViewer((s) => s.annotations);
-  const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
   const focusedId = useViewer((s) => s.focusedId);
   const isWireframe = useViewer((s) => s.isWireframe);
   const showAero = useViewer((s) => s.showAero);
+  const showTransformControls = useViewer((s) => s.showTransformControls);
+  const transformControlsMode = useViewer((s) => s.transformControlsMode);
   const modelUrl = useViewer((s) => s.modelUrl);
   const setResetCamera = useViewer((s) => s.setResetCamera);
+  const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
   const resetCamera = useViewer((s) => s.resetCamera);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
@@ -230,6 +233,14 @@ function App() {
                 url={effectiveModelUrl}
                 onField={handleField}
               />
+            )}
+            {showTransformControls && effectiveModelUrl && (
+              <>
+                <TransformControls
+                  object={modelRef as RefObject<Group>}
+                  mode={transformControlsMode}
+                />
+              </>
             )}
             <FrameOnLoad
               controlsRef={cameraControlsRef}
