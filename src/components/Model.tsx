@@ -64,6 +64,7 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
   const addPoint = useMeasurement((s) => s.addPoint);
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const invalidate = useThree((s) => s.invalidate);
+  const gl = useThree((s) => s.gl);
 
   const tool = useViewer((s) => s.tool);
   const showAero = useViewer((s) => s.showAero);
@@ -364,6 +365,12 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     if (!target) return;
     e.stopPropagation();
     if (controls) controls.enabled = false;
+    // camera-controls clears touch-action back to "" the instant it's
+    // disabled (see its `enabled` setter) - on mobile that hands the
+    // in-progress finger drag straight to the browser's native
+    // scroll/pan gesture recognizer mid-stroke. Force it back so the
+    // canvas stays non-scrollable for the duration of the paint drag.
+    gl.domElement.style.touchAction = "none";
     beginPaintSession(target.texture);
     drawStroke(
       target.canvas,

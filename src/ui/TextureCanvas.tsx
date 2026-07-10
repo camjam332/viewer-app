@@ -121,7 +121,7 @@ export const TextureCanvas = ({
     <div className="relative w-fit mx-auto">
       <canvas
         ref={canvasRef}
-        className={className}
+        className={`touch-none ${className ?? ""}`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerEnter={handlePointerEnter}

@@ -100,6 +100,11 @@ export function useVertexDrag(
       draggedIndex.current = event.index;
       gl.domElement.style.cursor = "grabbing";
       if (controls) controls.enabled = false;
+      // camera-controls clears touch-action back to "" the instant it's
+      // disabled - on mobile that hands the in-progress finger drag to the
+      // browser's native scroll/pan gesture recognizer mid-drag. Force it
+      // back so the canvas stays non-scrollable while dragging a vertex.
+      gl.domElement.style.touchAction = "none";
 
       // Exact world position of the grabbed vertex (not the ray's approximate hit point)
       const vertexLocal = new THREE.Vector3().fromBufferAttribute(

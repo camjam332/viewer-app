@@ -14,6 +14,7 @@ type TextureEditParams = {
 type ExtractedTexture = {
   id: string;
   texture: string;
+  ownedSrc: boolean;
   textureRef: Texture;
   textureType: string;
 };
@@ -82,14 +83,15 @@ export const TextureEdit = ({ modelRef, modelUrl }: TextureEditParams) => {
       if (cancelled || index >= pending.length) return;
 
       const { tex, textureType } = pending[index];
-      const src = await textureToImageSrc(tex);
+      const { src, owned } = await textureToImageSrc(tex);
       if (cancelled) {
-        URL.revokeObjectURL(src);
+        if (owned) URL.revokeObjectURL(src);
         return;
       }
       collected.push({
         id: tex.uuid,
         texture: src,
+        ownedSrc: owned,
         textureRef: tex,
         textureType,
       });
@@ -103,7 +105,13 @@ export const TextureEdit = ({ modelRef, modelUrl }: TextureEditParams) => {
     return () => {
       cancelled = true;
       cancelAnimationFrame(frame);
-      collected.forEach((t) => URL.revokeObjectURL(t.texture));
+      // Only revoke URLs we created ourselves (textureToImageSrc's canvas
+      // fallback) - the <img> fast path reuses GLTFLoader's own blob URL,
+      // and revoking that breaks the texture for GLTFLoader too (see
+      // TextureImageSrc.owned).
+      collected.forEach((t) => {
+        if (t.ownedSrc) URL.revokeObjectURL(t.texture);
+      });
     };
   }, [editTexture]);
 
