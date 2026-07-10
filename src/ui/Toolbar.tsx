@@ -1,11 +1,17 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type RefObject } from "react";
 import { useViewer, type Tool } from "../state/state";
 import { ModelPicker } from "./ModelPicker";
 import { useMeasurement } from "../state/measurementState";
 import { ControlSlider } from "./ControlSlider";
 import { useAero } from "../state/aeroState";
+import { handleExport } from "../utils/model_utils";
+import type { Group } from "three";
 
-export const Toolbar = () => {
+type ToolbarParams = {
+  modelRef: RefObject<Group | null>;
+};
+
+export const Toolbar = ({ modelRef }: ToolbarParams) => {
   const setTool = useViewer((s) => s.setTool);
   const setModelUrl = useViewer((s) => s.setModelUrl);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
@@ -198,6 +204,12 @@ export const Toolbar = () => {
             }}
           >
             Reset Camera
+          </button>
+          <button
+            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            onClick={() => handleExport(modelRef)}
+          >
+            Export Model
           </button>
           {points.length > 0 &&
             selectedModel &&

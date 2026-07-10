@@ -200,7 +200,7 @@ function App() {
         className="fixed top-2 left-2 right-2 z-10 flex flex-col items-stretch gap-2
              max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
       >
-        <Toolbar />
+        <Toolbar modelRef={modelRef} />
         <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
       </div>
       <Sidebar />
