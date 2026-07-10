@@ -16,7 +16,7 @@ import {
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
 import { useTextureEdit } from "../state/textureEditState";
-import { MeshBVH } from "three-mesh-bvh";
+import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   beginPaintSession,
@@ -26,6 +26,18 @@ import {
   wrapUVCoordinate,
   type PaintPoint,
 } from "../utils/texturePaint";
+
+// r3f raycasts every intersectable mesh under the pointer on every single
+// pointermove (to know what to dispatch onPointerMove/Over/Out to), using
+// three.js's default brute-force per-triangle Mesh.raycast otherwise. For a
+// high-poly scan (hundreds of thousands+ triangles) that's expensive enough
+// per call to show up as dropped frames just from moving the mouse, even
+// with no click/drag involved. This swaps in three-mesh-bvh's accelerated
+// raycast globally - geometries still need computeBoundsTree() called once
+// (see the effect below) before it actually kicks in for a given mesh.
+BufferGeometry.prototype.computeBoundsTree = computeBoundsTree;
+BufferGeometry.prototype.disposeBoundsTree = disposeBoundsTree;
+Mesh.prototype.raycast = acceleratedRaycast;
 
 type ModelParams = {
   ref: Ref<Group> | null;
@@ -91,6 +103,20 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     fadeElapsedRef.current = 0;
     invalidate();
   }, [cloned, invalidate]);
+
+  // Builds the per-mesh acceleration structure the raycast override above
+  // actually needs to kick in (it silently falls back to the slow default
+  // for any geometry without one). Deferred to useEffect rather than
+  // useLayoutEffect since building it can itself take a noticeable moment
+  // on a dense scan - fine as a one-time background cost after the model's
+  // already painted, not worth blocking the first frame for.
+  useEffect(() => {
+    cloned.traverse((obj) => {
+      if (!(obj instanceof Mesh)) return;
+      const geometry = obj.geometry;
+      if (!geometry.boundsTree) geometry.computeBoundsTree();
+    });
+  }, [cloned]);
 
   useEffect(() => {
     const box = new Box3().setFromObject(cloned);
