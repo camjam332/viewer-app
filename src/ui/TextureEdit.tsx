@@ -192,7 +192,7 @@ export const TextureEdit = ({ modelRef, modelUrl }: TextureEditParams) => {
           </select>
         </label>
       )}
-      <div className="grid gap-2 overflow-y-auto flex-1 min-h-0 pr-1">
+      <div className="hidden md:grid gap-2 overflow-y-auto flex-1 min-h-0 pr-1">
         {textures.map((texture) => (
           <Fragment key={texture.id}>
             <p className="text-white">{texture.textureType}</p>
