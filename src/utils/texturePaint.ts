@@ -147,13 +147,6 @@ const uploadDirtyRegion = (
   const h = Math.min(canvas.height, Math.ceil(rect.y + rect.h)) - y;
   if (w <= 0 || h <= 0) return;
 
-  const ctx = canvas.getContext("2d");
-  const imageData = ctx?.getImageData(x, y, w, h);
-  if (!imageData) {
-    texture.needsUpdate = true;
-    return;
-  }
-
   const gl = renderer.getContext();
   // Go through the renderer's cached state wrappers (not raw gl calls) so
   // three.js's own binding/pixel-store cache stays in sync with what we
@@ -166,15 +159,20 @@ const uploadDirtyRegion = (
   );
   renderer.state.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.NONE);
   renderer.state.pixelStorei(gl.UNPACK_ALIGNMENT, texture.unpackAlignment);
-  gl.texSubImage2D(
-    gl.TEXTURE_2D,
-    0,
-    x,
-    y,
-    gl.RGBA,
-    gl.UNSIGNED_BYTE,
-    imageData,
-  );
+  // Crop [x,y,w,h] straight out of the live canvas via WebGL2's unpack
+  // skip/row-length pixel-store params, instead of ctx.getImageData(): this
+  // canvas is also a visible, actively-composited on-screen element (see
+  // registerTextureCanvas), and getImageData forces the browser to
+  // synchronously flush its own GPU pipeline and copy pixels back to CPU
+  // memory to satisfy that read - costing tens of ms per call. Uploading
+  // straight from the canvas element skips that CPU round-trip entirely.
+  renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, canvas.width);
+  renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
+  renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, y);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+  renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+  renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+  renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
 };
 
 const strokePath = (

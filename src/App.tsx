@@ -213,7 +213,7 @@ function App() {
         frameloop="demand"
         dpr={[1, 2]}
       >
-        <Stats />
+        {/* <Stats /> */}
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
         <ErrorBoundary
