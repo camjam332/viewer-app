@@ -39,6 +39,7 @@ import { Toolbar } from "./ui/Toolbar";
 import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
 import { registerRenderer } from "./utils/texturePaint";
+import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -143,6 +144,7 @@ function App() {
   const modelRef = useRef<Group | null>(null);
   const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
   const config = useAero((s) => s.config);
+  const meshDeformation = useViewer((s) => s.meshDeformation);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
@@ -226,6 +228,9 @@ function App() {
             </Html>
           )}
         >
+          {meshDeformation && modelRef.current && (
+            <MeshDeformation object={modelRef.current} renderObject={false} />
+          )}
           <Suspense fallback={null}>
             {effectiveModelUrl && (
               <Model

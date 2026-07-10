@@ -46,6 +46,8 @@ export type Annotation = {
 };
 
 type ViewerState = {
+  meshDeformation: boolean;
+  setMeshDeformation: (b?: boolean) => void;
   transformControlsMode: "translate" | "rotate" | "scale";
   setTransformControlsMode: (s: "translate" | "rotate" | "scale") => void;
   showTransformControls: boolean;
@@ -88,6 +90,11 @@ type ViewerState = {
 export const useViewer = create<ViewerState>()(
   persist(
     (set) => ({
+      meshDeformation: false,
+      setMeshDeformation: (b) =>
+        set((s) => ({
+          meshDeformation: b !== undefined ? b : !s.meshDeformation,
+        })),
       transformControlsMode: "translate",
       setTransformControlsMode: (s) => set({ transformControlsMode: s }),
       showTransformControls: false,

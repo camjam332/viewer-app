@@ -24,6 +24,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
   const setConfig = useAero((s) => s.setConfig);
   const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
   const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
+  const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -38,6 +39,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const config = useAero((s) => s.config);
   const showTransformControls = useViewer((s) => s.showTransformControls);
+  const meshDeformation = useViewer((s) => s.meshDeformation);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
 
@@ -195,6 +197,17 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
                 </option>
               </select>
             )}
+          </div>
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Deform Mesh
+            </label>
+            <input
+              type="checkbox"
+              checked={meshDeformation}
+              onChange={() => setMeshDeformation()}
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
           </div>
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
