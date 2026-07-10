@@ -166,13 +166,27 @@ const uploadDirtyRegion = (
   // synchronously flush its own GPU pipeline and copy pixels back to CPU
   // memory to satisfy that read - costing tens of ms per call. Uploading
   // straight from the canvas element skips that CPU round-trip entirely.
-  renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, canvas.width);
-  renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
-  renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, y);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
-  renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
-  renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
-  renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  // (UNPACK_ROW_LENGTH/SKIP_PIXELS/SKIP_ROWS and the canvas-source overload
+  // of texSubImage2D are WebGL2-only, hence the instanceof narrowing - r3f
+  // always requests WebGL2 in practice, but fall back to the older
+  // getImageData path if a WebGL1 context ever shows up.)
+  if (gl instanceof WebGL2RenderingContext) {
+    renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, canvas.width);
+    renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, x);
+    renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, y);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, w, h, gl.RGBA, gl.UNSIGNED_BYTE, canvas);
+    renderer.state.pixelStorei(gl.UNPACK_ROW_LENGTH, 0);
+    renderer.state.pixelStorei(gl.UNPACK_SKIP_PIXELS, 0);
+    renderer.state.pixelStorei(gl.UNPACK_SKIP_ROWS, 0);
+  } else {
+    const ctx = canvas.getContext("2d");
+    const imageData = ctx?.getImageData(x, y, w, h);
+    if (!imageData) {
+      texture.needsUpdate = true;
+      return;
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, gl.RGBA, gl.UNSIGNED_BYTE, imageData);
+  }
 };
 
 const strokePath = (
