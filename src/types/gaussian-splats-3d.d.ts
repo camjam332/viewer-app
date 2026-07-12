@@ -1,22 +1,11 @@
 // @mkkellogg/gaussian-splats-3d ships no official types. This covers only
-// the surface actually used across SplatViewer.tsx and the sanity check -
-// extend as needed. (A community-typed fork, guyettinger/gle-gaussian-splat-3d,
-// also exists if full API coverage becomes worth the dependency swap.)
+// the surface actually used across SplatViewer.tsx - extend as needed.
+// (A community-typed fork, guyettinger/gle-gaussian-splat-3d, also exists
+// if full API coverage becomes worth the dependency swap.)
 declare module "@mkkellogg/gaussian-splats-3d" {
-  import { Group, Camera, Scene, WebGLRenderer } from "three";
+  import { Group, Mesh, Camera, Box3 } from "three";
 
   export interface DropInViewerOptions {
-    selfDrivenMode?: boolean;
-    useBuiltInControls?: boolean;
-    camera?: Camera;
-    renderer?: WebGLRenderer;
-    threeScene?: Scene;
-    // Self-driven-mode-only options (used when the library owns its own
-    // camera/controls, e.g. the sanity check - harmless to leave optional
-    // here even though managed mode never sets them)
-    cameraUp?: [number, number, number];
-    initialCameraPosition?: [number, number, number];
-    initialCameraLookAt?: [number, number, number];
     sharedMemoryForWorkers?: boolean;
     gpuAcceleratedSort?: boolean;
     showLoadingUI?: boolean;
@@ -27,7 +16,6 @@ declare module "@mkkellogg/gaussian-splats-3d" {
   }
 
   export interface SplatSceneParams {
-    /** Only used by DropInViewer.addSplatScenes' array form */
     path?: string;
     splatAlphaRemovalThreshold?: number;
     position?: [number, number, number];
@@ -38,23 +26,41 @@ declare module "@mkkellogg/gaussian-splats-3d" {
     [key: string]: unknown;
   }
 
+  export interface SplatHit {
+    origin: import("three").Vector3;
+    normal: import("three").Vector3;
+    distance: number;
+    splatIndex: number;
+  }
+
+  // Real public method - iterates actual splat center positions, unlike
+  // any bounds you'd get from Box3().setFromObject() (which only sees the
+  // placeholder template geometry, not the real per-splat data in textures).
+  // applySceneTransforms accounts for any position/rotation/scale passed to
+  // addSplatScene(); it does NOT include the SplatMesh's own matrixWorld -
+  // apply that separately for a true world-space box.
+  export class SplatMesh extends Mesh {
+    getSplatCount(): number;
+    computeBoundingBox(applySceneTransforms?: boolean, sceneIndex?: number): Box3;
+  }
+
+  // Not part of the library's public API - an internal instance property,
+  // documented here only because SplatViewer.tsx reaches into it directly.
+  interface InternalRaycaster {
+    setFromCameraAndScreenPosition(
+      camera: Camera,
+      screenPosition: { x: number; y: number },
+      screenDimensions: { x: number; y: number },
+    ): void;
+    intersectSplatMesh(splatMesh: SplatMesh, outHits?: SplatHit[]): SplatHit[];
+  }
+
   export class DropInViewer extends Group {
     constructor(options?: DropInViewerOptions);
     addSplatScene(path: string, options?: SplatSceneParams): Promise<void>;
-    addSplatScenes(
-      scenes: SplatSceneParams[],
-      showLoadingUI?: boolean,
-    ): Promise<void>;
+    addSplatScenes(scenes: SplatSceneParams[], showLoadingUI?: boolean): Promise<void>;
     dispose(): Promise<void>;
-  }
-
-  export class Viewer {
-    constructor(options?: DropInViewerOptions);
-    addSplatScene(path: string, options?: SplatSceneParams): Promise<void>;
-    start(): void;
-    stop(): void;
-    update(): void;
-    render(): void;
-    dispose(): Promise<void>;
+    splatMesh: SplatMesh | null;
+    viewer: { raycaster: InternalRaycaster };
   }
 }

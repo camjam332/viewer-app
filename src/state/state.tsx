@@ -27,10 +27,17 @@ const models: ModelOption[] = [
   {
     modelUrl: "/models/triceratops_skull.glb",
     name: "Triceratops (Scan)",
+    kind: "mesh",
   },
   {
     modelUrl: "/models/cadillac_fleetwood_brougham_1997_pink/scene.gltf",
     name: "Cadillac (Scan)",
+    kind: "mesh",
+  },
+  {
+    modelUrl: "/models/nike.splat",
+    name: "Nike (Splat)",
+    kind: "splat",
   },
 ];
 

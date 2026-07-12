@@ -8,6 +8,8 @@ export type ModelOption = {
   modelUrl: string;
   name: string;
   screenshotUrl?: string;
+  /** Defaults to "mesh" when omitted - only splats need to set this */
+  kind?: "mesh" | "splat";
 };
 
 type ModelPickerProps = {

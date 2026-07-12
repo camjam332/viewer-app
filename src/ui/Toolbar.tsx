@@ -42,6 +42,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
   const meshDeformation = useViewer((s) => s.meshDeformation);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
+  const isSplatModel = selectedModel?.kind === "splat";
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -84,16 +85,20 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
             </option>
             <option
               className="rounded bg-black/70 text-white px-2 py-1"
-              value="measure"
-            >
-              Measure
-            </option>
-            <option
-              className="rounded bg-black/70 text-white px-2 py-1"
               value="annotate"
             >
               Annotate
             </option>
+            {!isSplatModel && (
+              <>
+                <option
+                  className="rounded bg-black/70 text-white px-2 py-1"
+                  value="measure"
+                >
+                  Measure
+                </option>
+              </>
+            )}
           </select>
           <ModelPicker
             models={models}
@@ -116,48 +121,54 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
               className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
             />
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-              Show Aeros
-            </label>
-            <input
-              type="checkbox"
-              checked={showAero}
-              onChange={() => setShowAero()}
-              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-            />
-            {showAero && (
-              <div>
-                <ControlSlider
-                  label="Flow Direction (°)"
-                  min={-180}
-                  max={180}
-                  step={1}
-                  value={config.flowYawDeg}
-                  onChange={(v) => setConfig({ flowYawDeg: v })}
-                />
-                <ControlSlider
-                  label="Trail length"
-                  min={10}
-                  max={150}
-                  step={5}
-                  value={config.trailLength}
-                  onChange={(v) => setConfig((c) => ({ ...c, trailLength: v }))}
-                />
-              </div>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-              Edit Texture
-            </label>
-            <input
-              type="checkbox"
-              checked={editTexture}
-              onChange={() => setEditTexture()}
-              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-            />
-          </div>
+          {!isSplatModel && (
+            <div className="flex items-center gap-2">
+              <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+                Show Aeros
+              </label>
+              <input
+                type="checkbox"
+                checked={showAero}
+                onChange={() => setShowAero()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+              />
+              {showAero && (
+                <div>
+                  <ControlSlider
+                    label="Flow Direction (°)"
+                    min={-180}
+                    max={180}
+                    step={1}
+                    value={config.flowYawDeg}
+                    onChange={(v) => setConfig({ flowYawDeg: v })}
+                  />
+                  <ControlSlider
+                    label="Trail length"
+                    min={10}
+                    max={150}
+                    step={5}
+                    value={config.trailLength}
+                    onChange={(v) =>
+                      setConfig((c) => ({ ...c, trailLength: v }))
+                    }
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          {!isSplatModel && (
+            <div className="flex items-center gap-2">
+              <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+                Edit Texture
+              </label>
+              <input
+                type="checkbox"
+                checked={editTexture}
+                onChange={() => setEditTexture()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+              />
+            </div>
+          )}
           <div className="flex items-center gap-2">
             <label className="text-white select-none ms-2 text-sm font-medium text-heading">
               Show Transform Controls
@@ -198,17 +209,19 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
               </select>
             )}
           </div>
-          <div className="flex items-center gap-2">
-            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-              Deform Mesh
-            </label>
-            <input
-              type="checkbox"
-              checked={meshDeformation}
-              onChange={() => setMeshDeformation()}
-              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-            />
-          </div>
+          {!isSplatModel && (
+            <div className="flex items-center gap-2">
+              <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+                Deform Mesh
+              </label>
+              <input
+                type="checkbox"
+                checked={meshDeformation}
+                onChange={() => setMeshDeformation()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+              />
+            </div>
+          )}
           <button
             className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
             onClick={() => {

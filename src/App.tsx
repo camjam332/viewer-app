@@ -41,6 +41,7 @@ import { TextureEdit } from "./ui/TextureEdit";
 import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SplatViewer } from "./components/Splat/SplatViewer";
+import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -67,15 +68,7 @@ const CameraFocus = ({
       const camX = px + nx * dist;
       const camY = py + ny * dist;
       const camZ = pz + nz * dist;
-      cameraControlsRef.current.setLookAt(
-        camX,
-        camY,
-        camZ, // where the camera moves TO
-        px,
-        py,
-        pz, // what it looks AT (the annotation point)
-        true, // enableTransition = smooth animated move
-      );
+      cameraControlsRef.current.setLookAt(camX, camY, camZ, px, py, pz, true);
     } else {
       cameraControlsRef.current.reset(true);
     }
@@ -111,7 +104,7 @@ function FrameOnLoad({
     setMarkerScale(markerScale);
     clearPoints();
     controlsRef.current.fitToBox(box, false);
-    controlsRef.current.saveState(); // remember this pose so reset() can restore it later
+    controlsRef.current.saveState();
   }, [modelUrl]);
   return null;
 }
@@ -136,6 +129,7 @@ function App() {
   const showAero = useViewer((s) => s.showAero);
   const showTransformControls = useViewer((s) => s.showTransformControls);
   const transformControlsMode = useViewer((s) => s.transformControlsMode);
+  const models = useViewer((s) => s.models);
   const modelUrl = useViewer((s) => s.modelUrl);
   const setResetCamera = useViewer((s) => s.setResetCamera);
   const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
@@ -145,14 +139,19 @@ function App() {
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
+  const splatRef = useRef<Group | null>(null);
   const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
   const config = useAero((s) => s.config);
   const meshDeformation = useViewer((s) => s.meshDeformation);
 
-  const splatRef = useRef<Group | null>(null);
-
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
+
+  // Uploaded models are always treated as mesh (no splat upload path yet).
+  // Otherwise look up the selected catalog entry's kind, defaulting to mesh.
+  const selectedModel = models.find((m) => m.modelUrl === modelUrl);
+  const isSplatModel = !uploadedModelUrl && selectedModel?.kind === "splat";
+  const activeObjectRef = isSplatModel ? splatRef : modelRef;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
@@ -183,7 +182,24 @@ function App() {
     }
     prevModelFieldRef.current = modelField;
   }, [modelField]);
-  //End
+
+  const handleSplatLoad = useCallback(
+    (viewer: GaussianSplats3D.DropInViewer) => {
+      const splatMesh = viewer.splatMesh;
+      if (!splatMesh || !cameraControlsRef.current) return;
+      if (splatMesh.getSplatCount() === 0) return;
+
+      splatMesh.updateMatrixWorld(true);
+      const box = splatMesh
+        .computeBoundingBox(true)
+        .applyMatrix4(splatMesh.matrixWorld);
+
+      cameraControlsRef.current.reset(false);
+      cameraControlsRef.current.fitToBox(box, false);
+      cameraControlsRef.current.saveState();
+    },
+    [],
+  );
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -210,7 +226,9 @@ function App() {
              max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
       >
         <Toolbar modelRef={modelRef} />
-        <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
+        {!isSplatModel && (
+          <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
+        )}
       </div>
       <Sidebar />
       <Canvas
@@ -222,12 +240,21 @@ function App() {
           height: "100%",
         }}
         camera={{ near: 0.001, far: 1000 }}
-        frameloop="always"
+        frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
         {/* <Stats /> */}
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
+
+        {isSplatModel && effectiveModelUrl && (
+          <SplatViewer
+            key={effectiveModelUrl}
+            ref={splatRef}
+            url={effectiveModelUrl}
+            onLoad={handleSplatLoad}
+          />
+        )}
 
         <ErrorBoundary
           fallbackRender={({ error }) => (
@@ -236,45 +263,46 @@ function App() {
             </Html>
           )}
         >
-          {meshDeformation && modelRef.current && (
+          {!isSplatModel && meshDeformation && modelRef.current && (
             <MeshDeformation object={modelRef.current} renderObject={false} />
           )}
-          <SplatViewer ref={splatRef} url="/models/cluster fly M.ply" />
           <Suspense fallback={null}>
-            {/* {effectiveModelUrl && (
+            {!isSplatModel && effectiveModelUrl && (
               <Model
                 ref={modelRef}
                 url={effectiveModelUrl}
                 onField={handleField}
               />
-            )} */}
+            )}
             {showTransformControls && effectiveModelUrl && (
+              <TransformControls
+                object={activeObjectRef as RefObject<Group>}
+                mode={transformControlsMode}
+              />
+            )}
+            {!isSplatModel && (
               <>
-                <TransformControls
-                  object={modelRef as RefObject<Group>}
-                  mode={transformControlsMode}
+                <FrameOnLoad
+                  controlsRef={cameraControlsRef}
+                  modelRef={modelRef}
+                  modelUrl={effectiveModelUrl}
                 />
+                <CameraFocus
+                  resetCallback={() => setResetCamera(false)}
+                  cameraControlsRef={cameraControlsRef}
+                  focused={focused}
+                  focusedId={focusedId}
+                  resetCameraPos={resetCamera}
+                />
+                <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
+                <Annotations />
+                <Environment preset="city" />
               </>
             )}
-            <FrameOnLoad
-              controlsRef={cameraControlsRef}
-              modelRef={modelRef}
-              modelUrl={effectiveModelUrl}
-            />
-            <CameraFocus
-              resetCallback={() => setResetCamera(false)}
-              cameraControlsRef={cameraControlsRef}
-              focused={focused}
-              focusedId={focusedId}
-              resetCameraPos={resetCamera}
-            />
-            <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
-            <Annotations />
-            <Environment preset="city" />
           </Suspense>
         </ErrorBoundary>
 
-        {showAero && enrichedField && modelField && (
+        {!isSplatModel && showAero && enrichedField && modelField && (
           <FieldContext.Provider value={enrichedField}>
             <StreamlineField
               count={config.streamlineCount}
