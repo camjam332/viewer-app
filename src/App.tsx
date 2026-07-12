@@ -24,7 +24,7 @@ import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import type { Annotation } from "./state/state";
-import { Box3, Mesh, type Group } from "three";
+import { Box3, Mesh, Vector3, type Group } from "three";
 import {
   FieldContext,
   StreamlineField,
@@ -144,6 +144,8 @@ function App() {
   const meshDeformation = useViewer((s) => s.meshDeformation);
   const tool = useViewer((s) => s.tool);
   const addAnnotation = useViewer((s) => s.addAnnotation);
+  const addPoint = useMeasurement((s) => s.addPoint);
+  const clearPoints = useMeasurement((s) => s.clearPoints);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
@@ -195,16 +197,21 @@ function App() {
         .applyMatrix4(splatMesh.matrixWorld);
 
       setMarkerScale(box.max.x - box.min.x);
+      clearPoints();
       cameraControlsRef.current.reset(false);
       cameraControlsRef.current.fitToBox(box, false);
       cameraControlsRef.current.saveState();
     },
-    [setMarkerScale],
+    [setMarkerScale, clearPoints],
   );
 
   const splatClick = (hit: SplatHit) => {
     if (!hit) return;
     console.log("[splat] clicked", hit);
+    if (tool === "measure") {
+      const point = new Vector3(...hit.point);
+      addPoint(point);
+    }
     if (tool === "annotate" && splatRef.current) {
       let normal: [number, number, number] = [0, 0, 1];
       if (hit.normal) {
@@ -306,6 +313,7 @@ function App() {
               resetCameraPos={resetCamera}
             />
             <Annotations />
+            <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
             {!isSplatModel && (
               <>
                 <FrameOnLoad
@@ -313,7 +321,6 @@ function App() {
                   modelRef={modelRef}
                   modelUrl={effectiveModelUrl}
                 />
-                <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
                 <Environment preset="city" />
               </>
             )}

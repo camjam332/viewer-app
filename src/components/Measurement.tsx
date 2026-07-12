@@ -166,20 +166,29 @@ export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
             key={i}
             position={v}
             geometry={MARKER_SPHERE_GEOMETRY}
+            renderOrder={999}
           >
-            <meshBasicMaterial color={"red"} depthTest={false} />
+            <meshBasicMaterial color={"red"} depthTest={false} transparent />
           </mesh>
         );
       })}
       {points.length === 2 &&
         (measurementMode === "linear" ? (
-          <Line points={points} color={"red"} depthTest={false} />
+          <Line
+            points={points}
+            color={"red"}
+            depthTest={false}
+            transparent
+            renderOrder={999}
+          />
         ) : (
           draped && (
             <Line
               points={draped.points}
               color="cyan"
               depthTest={false}
+              transparent
+              renderOrder={999}
               lineWidth={2}
             />
           )

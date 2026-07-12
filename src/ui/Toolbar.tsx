@@ -85,20 +85,16 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
             </option>
             <option
               className="rounded bg-black/70 text-white px-2 py-1"
+              value="measure"
+            >
+              Measure
+            </option>
+            <option
+              className="rounded bg-black/70 text-white px-2 py-1"
               value="annotate"
             >
               Annotate
             </option>
-            {!isSplatModel && (
-              <>
-                <option
-                  className="rounded bg-black/70 text-white px-2 py-1"
-                  value="measure"
-                >
-                  Measure
-                </option>
-              </>
-            )}
           </select>
           <ModelPicker
             models={models}
