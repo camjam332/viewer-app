@@ -39,7 +39,7 @@ export const SplatViewer = ({
     });
 
     instance
-      .addSplatScene(url, { progressiveLoad: false })
+      .addSplatScene(url, { progressiveLoad: true, showLoadingUI: false })
       .then(() => {
         if (cancelled) return;
         setViewer(instance);

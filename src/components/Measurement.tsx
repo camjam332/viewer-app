@@ -9,15 +9,23 @@ import type {
   MeshBuffers,
 } from "../workers/geodesicWorker";
 import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
+import { applyMatrix4ToFlatPoints } from "../utils/measurement_utils";
+import type * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 
 type MeasurementProps = {
   modelRef: RefObject<Object3D | null>;
   modelUrl: string | null;
+  /** Present only once a splat scene has finished loading; null in mesh mode. */
+  splatMesh?: GaussianSplats3D.SplatMesh | null;
 };
 
 type DrapedResult = { points: Vector3[]; distance: number };
 
-export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
+export const Measurement = ({
+  modelRef,
+  modelUrl,
+  splatMesh,
+}: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
   const markerScale = useViewer((s) => s.markerScale);
@@ -31,9 +39,10 @@ export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
   const [graphReadyToken, setGraphReadyToken] = useState(0);
   const [draped, setDraped] = useState<DrapedResult | null>(null);
 
-  // The graph build (weld + adjacency) and the Dijkstra search are both
-  // O(vertex count) or worse, which freezes the main thread on dense
-  // meshes. Offload them to a worker so the UI stays responsive.
+  // The graph build (weld + adjacency, or k-d tree + kNN graph) and the
+  // Dijkstra search are both O(vertex/splat count) or worse, which freezes
+  // the main thread on dense meshes or large splat clouds. Offload them to
+  // a worker so the UI stays responsive.
   useEffect(() => {
     const worker = new Worker(
       new URL("../workers/geodesicWorker.ts", import.meta.url),
@@ -72,13 +81,16 @@ export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
     };
   }, []);
 
-  // Rebuild the mesh graph only when the model itself changes. Depends on
+  // Rebuild the MESH graph only when the model itself changes. Depends on
   // modelUrl rather than modelRef.current: mutating a ref doesn't trigger a
   // re-render, so an effect keyed on ref.current only re-runs when some
   // *other* state change happens to cause a re-render around the same
   // time - true here today (clearPoints() on load coincides), but that's
   // incidental, not guaranteed, and could silently rebuild the graph
   // against a stale or wrong mesh if that coincidence ever breaks.
+  //
+  // In splat mode modelRef.current is always null (Model never mounts),
+  // so this naturally no-ops and defers to the splat-graph effect below.
   useEffect(() => {
     const worker = workerRef.current;
     if (!worker) return;
@@ -126,8 +138,45 @@ export const Measurement = ({ modelRef, modelUrl }: MeasurementProps) => {
     worker.postMessage(message, transfer);
   }, [modelUrl]);
 
+  // Rebuild the SPLAT graph whenever a new splat scene finishes loading.
+  // Keyed on the splatMesh instance itself (a fresh object per successful
+  // load, per SplatViewer's fresh-instance-per-effect pattern) rather than
+  // modelUrl, since splatMesh only becomes available once the load has
+  // actually completed - avoiding the ref-timing issue we hit earlier with
+  // camera framing.
+  useEffect(() => {
+    const worker = workerRef.current;
+    if (!worker || !splatMesh) return;
+
+    const splatCount = splatMesh.getSplatCount();
+    if (splatCount === 0) {
+      graphReadyRef.current = false;
+      setDraped(null);
+      return;
+    }
+
+    const centers = new Float32Array(splatCount * 3);
+    splatMesh.fillSplatDataArrays(null, null, null, centers, null, null, true);
+    splatMesh.updateMatrixWorld(true);
+    applyMatrix4ToFlatPoints(centers, splatMesh.matrixWorld.elements);
+
+    const requestId = ++nextRequestId.current;
+    graphRequestIdRef.current = requestId;
+    graphReadyRef.current = false;
+    setDraped(null);
+
+    const message: GeodesicWorkerRequest = {
+      type: "buildSplatGraph",
+      requestId,
+      centers,
+      k: 8,
+    };
+    worker.postMessage(message, [centers.buffer]);
+  }, [splatMesh]);
+
   // Recompute the geodesic path whenever the measurement points (or the
-  // freshly-built graph) change.
+  // freshly-built graph) change. Fully generic over mesh/splat - the
+  // worker already resolved which graph is active.
   useEffect(() => {
     if (
       points.length !== 2 ||

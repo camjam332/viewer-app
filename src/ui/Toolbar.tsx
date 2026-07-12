@@ -106,19 +106,17 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
             uploadedModelUrl={uploadedModelUrl}
             onUploadModel={setUploadedModelUrl}
           />
-          <div className="flex items-center gap-2">
-            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
-              Wireframe
-            </label>
-            <input
-              type="checkbox"
-              checked={isWireframe}
-              onChange={() => setIsWireframe()}
-              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
-            />
-          </div>
           {!isSplatModel && (
             <div className="flex items-center gap-2">
+              <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+                Wireframe
+              </label>
+              <input
+                type="checkbox"
+                checked={isWireframe}
+                onChange={() => setIsWireframe()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+              />
               <label className="text-white select-none ms-2 text-sm font-medium text-heading">
                 Show Aeros
               </label>
@@ -227,15 +225,18 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
           >
             Reset Camera
           </button>
-          <button
-            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-            onClick={() => handleExport(modelRef)}
-          >
-            Export Model
-          </button>
+          {!isSplatModel && (
+            <button
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+              onClick={() => handleExport(modelRef)}
+            >
+              Export Model
+            </button>
+          )}
           {points.length > 0 &&
             selectedModel &&
-            selectedModel.name.toLowerCase().includes("scan") && (
+            (isSplatModel ||
+              selectedModel.name.toLowerCase().includes("scan")) && (
               <select
                 onChange={(e) =>
                   setMeasurementMode(e.target.value as "linear" | "geodesic")

@@ -156,6 +156,8 @@ function App() {
   const activeObjectRef = isSplatModel ? splatRef : modelRef;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
+  const [loadedSplatMesh, setLoadedSplatMesh] =
+    useState<GaussianSplats3D.SplatMesh | null>(null);
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -175,6 +177,7 @@ function App() {
     setModelField(null);
     setShowTransformControls(false);
     setMeshDeformation(false);
+    setLoadedSplatMesh(null);
   }, [effectiveModelUrl]);
 
   useEffect(() => {
@@ -201,13 +204,13 @@ function App() {
       cameraControlsRef.current.reset(false);
       cameraControlsRef.current.fitToBox(box, false);
       cameraControlsRef.current.saveState();
+      setLoadedSplatMesh(splatMesh);
     },
     [setMarkerScale, clearPoints],
   );
 
   const splatClick = (hit: SplatHit) => {
     if (!hit) return;
-    console.log("[splat] clicked", hit);
     if (tool === "measure") {
       const point = new Vector3(...hit.point);
       addPoint(point);
@@ -313,7 +316,11 @@ function App() {
               resetCameraPos={resetCamera}
             />
             <Annotations />
-            <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
+            <Measurement
+              modelRef={modelRef}
+              modelUrl={effectiveModelUrl}
+              splatMesh={loadedSplatMesh}
+            />
             {!isSplatModel && (
               <>
                 <FrameOnLoad

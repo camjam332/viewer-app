@@ -39,6 +39,16 @@ const models: ModelOption[] = [
     name: "Nike (Splat)",
     kind: "splat",
   },
+  {
+    modelUrl: "/models/room.splat",
+    name: "Room (Splat)",
+    kind: "splat",
+  },
+  {
+    modelUrl: "/models/stump.splat",
+    name: "Stump (Splat)",
+    kind: "splat",
+  },
 ];
 
 export type Tool = "orbit" | "measure" | "annotate";

@@ -1,7 +1,7 @@
 // @mkkellogg/gaussian-splats-3d ships no official types. This covers only
-// the surface actually used across SplatViewer.tsx - extend as needed.
-// (A community-typed fork, guyettinger/gle-gaussian-splat-3d, also exists
-// if full API coverage becomes worth the dependency swap.)
+// the surface actually used across SplatViewer.tsx and Measurement.tsx -
+// extend as needed. (A community-typed fork, guyettinger/gle-gaussian-splat-3d,
+// also exists if full API coverage becomes worth the dependency swap.)
 declare module "@mkkellogg/gaussian-splats-3d" {
   import { Group, Mesh, Camera, Box3 } from "three";
 
@@ -42,6 +42,19 @@ declare module "@mkkellogg/gaussian-splats-3d" {
   export class SplatMesh extends Mesh {
     getSplatCount(): number;
     computeBoundingBox(applySceneTransforms?: boolean, sceneIndex?: number): Box3;
+    // Only the params actually used are typed - real signature has several
+    // more optional trailing params (compression levels, src/dest ranges,
+    // sceneIndex) that aren't needed here. Pass null for any array you
+    // don't want populated.
+    fillSplatDataArrays(
+      covariances: Float32Array | null,
+      scales: Float32Array | null,
+      rotations: Float32Array | null,
+      centers: Float32Array | null,
+      colors: Uint8Array | null,
+      sphericalHarmonics: Float32Array | null,
+      applySceneTransform?: boolean,
+    ): void;
   }
 
   // Not part of the library's public API - an internal instance property,
