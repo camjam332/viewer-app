@@ -40,6 +40,7 @@ import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
 import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
+import { SplatViewer } from "./components/Splat/SplatViewer";
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -148,6 +149,8 @@ function App() {
   const config = useAero((s) => s.config);
   const meshDeformation = useViewer((s) => s.meshDeformation);
 
+  const splatRef = useRef<Group | null>(null);
+
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
@@ -219,12 +222,13 @@ function App() {
           height: "100%",
         }}
         camera={{ near: 0.001, far: 1000 }}
-        frameloop="demand"
+        frameloop="always"
         dpr={[1, 2]}
       >
         {/* <Stats /> */}
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
+
         <ErrorBoundary
           fallbackRender={({ error }) => (
             <Html center>
@@ -235,14 +239,15 @@ function App() {
           {meshDeformation && modelRef.current && (
             <MeshDeformation object={modelRef.current} renderObject={false} />
           )}
+          <SplatViewer ref={splatRef} url="/models/cluster fly M.ply" />
           <Suspense fallback={null}>
-            {effectiveModelUrl && (
+            {/* {effectiveModelUrl && (
               <Model
                 ref={modelRef}
                 url={effectiveModelUrl}
                 onField={handleField}
               />
-            )}
+            )} */}
             {showTransformControls && effectiveModelUrl && (
               <>
                 <TransformControls
