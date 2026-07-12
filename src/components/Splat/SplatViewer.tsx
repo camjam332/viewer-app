@@ -1,10 +1,11 @@
 import { useEffect, useState, type Ref } from "react";
 import { useThree } from "@react-three/fiber";
-import type { Group } from "three";
+import { Vector3, type Group } from "three";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 
-type SplatHit = {
+export type SplatHit = {
   point: [number, number, number];
+  normal: Vector3;
   splatIndex: number;
   distance: number;
 };
@@ -80,8 +81,14 @@ export const SplatViewer = ({
       if (hits.length === 0) return;
 
       const closest = hits[0];
+
       onSplatClick({
         point: [closest.origin.x, closest.origin.y, closest.origin.z],
+        normal: new Vector3(
+          closest.normal.x,
+          closest.normal.y,
+          closest.normal.z,
+        ),
         splatIndex: closest.splatIndex,
         distance: closest.distance,
       });

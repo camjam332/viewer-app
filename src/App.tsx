@@ -5,7 +5,6 @@ import {
   Environment,
   CameraControls,
   Grid,
-  Stats,
   TransformControls,
 } from "@react-three/drei";
 import {
@@ -40,7 +39,7 @@ import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
 import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
-import { SplatViewer } from "./components/Splat/SplatViewer";
+import { SplatViewer, type SplatHit } from "./components/Splat/SplatViewer";
 import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 
 type CameraFocusParams = {
@@ -143,12 +142,13 @@ function App() {
   const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
   const config = useAero((s) => s.config);
   const meshDeformation = useViewer((s) => s.meshDeformation);
+  const tool = useViewer((s) => s.tool);
+  const addAnnotation = useViewer((s) => s.addAnnotation);
+  const setMarkerScale = useViewer((s) => s.setMarkerScale);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
-  // Uploaded models are always treated as mesh (no splat upload path yet).
-  // Otherwise look up the selected catalog entry's kind, defaulting to mesh.
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
   const isSplatModel = !uploadedModelUrl && selectedModel?.kind === "splat";
   const activeObjectRef = isSplatModel ? splatRef : modelRef;
@@ -194,12 +194,29 @@ function App() {
         .computeBoundingBox(true)
         .applyMatrix4(splatMesh.matrixWorld);
 
+      setMarkerScale(box.max.x - box.min.x);
       cameraControlsRef.current.reset(false);
       cameraControlsRef.current.fitToBox(box, false);
       cameraControlsRef.current.saveState();
     },
-    [],
+    [setMarkerScale],
   );
+
+  const splatClick = (hit: SplatHit) => {
+    if (!hit) return;
+    console.log("[splat] clicked", hit);
+    if (tool === "annotate" && splatRef.current) {
+      let normal: [number, number, number] = [0, 0, 1];
+      if (hit.normal) {
+        const normalVals = hit.normal
+          .clone()
+          .transformDirection(splatRef.current.matrixWorld);
+        normal = [normalVals.x, normalVals.y, normalVals.z];
+      }
+      const position: [number, number, number] = hit.point;
+      addAnnotation(position, normal, effectiveModelUrl ?? undefined);
+    }
+  };
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -253,6 +270,7 @@ function App() {
             ref={splatRef}
             url={effectiveModelUrl}
             onLoad={handleSplatLoad}
+            onSplatClick={splatClick}
           />
         )}
 
@@ -280,6 +298,14 @@ function App() {
                 mode={transformControlsMode}
               />
             )}
+            <CameraFocus
+              resetCallback={() => setResetCamera(false)}
+              cameraControlsRef={cameraControlsRef}
+              focused={focused}
+              focusedId={focusedId}
+              resetCameraPos={resetCamera}
+            />
+            <Annotations />
             {!isSplatModel && (
               <>
                 <FrameOnLoad
@@ -287,15 +313,7 @@ function App() {
                   modelRef={modelRef}
                   modelUrl={effectiveModelUrl}
                 />
-                <CameraFocus
-                  resetCallback={() => setResetCamera(false)}
-                  cameraControlsRef={cameraControlsRef}
-                  focused={focused}
-                  focusedId={focusedId}
-                  resetCameraPos={resetCamera}
-                />
                 <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
-                <Annotations />
                 <Environment preset="city" />
               </>
             )}
