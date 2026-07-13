@@ -7,6 +7,7 @@ import {
   Grid,
   Stats,
   TransformControls,
+  useGLTF,
 } from "@react-three/drei";
 import {
   Suspense,
@@ -152,7 +153,19 @@ function App() {
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [retryToken, setRetryToken] = useState(0);
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
+
+  const handleRetry = useCallback(() => {
+    // useGLTF/useLoader cache rejected loads too, so just resetting the
+    // error boundary would replay the exact same cached failure instantly
+    // instead of actually retrying the request - evict it first so the
+    // remounted <Model> genuinely re-fetches.
+    if (effectiveModelUrl) useGLTF.clear(effectiveModelUrl);
+    setErrorMessage(null);
+    setRetryToken((t) => t + 1);
+  }, [effectiveModelUrl]);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
     [config.flowYawDeg, config.flowPitchDeg],
@@ -171,6 +184,7 @@ function App() {
     setModelField(null);
     setShowTransformControls(false);
     setMeshDeformation(false);
+    setErrorMessage(null);
   }, [effectiveModelUrl]);
 
   useEffect(() => {
@@ -209,6 +223,22 @@ function App() {
         <Toolbar modelRef={modelRef} />
         <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
       </div>
+      {errorMessage && (
+        <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-lg bg-black/80 p-4 text-center text-white backdrop-blur break-words">
+            <h1 className="text-lg font-semibold md:text-xl">
+              {errorMessage}
+            </h1>
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="mt-4 rounded bg-white/10 px-5 py-2.5 hover:bg-white/20 active:bg-white/30"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
       <Sidebar />
       <Canvas
         style={{
@@ -226,11 +256,11 @@ function App() {
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
         <ErrorBoundary
-          fallbackRender={({ error }) => (
-            <Html center>
-              <h1>Failed to load model: {(error as Error).message}</h1>
-            </Html>
-          )}
+          fallback={null} // or a fallback mesh, e.g. <group /> or a placeholder <mesh>
+          onError={(error) => {
+            setErrorMessage((error as Error).message);
+          }}
+          resetKeys={[retryToken]}
         >
           {meshDeformation && modelRef.current && (
             <MeshDeformation object={modelRef.current} renderObject={false} />
