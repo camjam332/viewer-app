@@ -9,14 +9,21 @@ import type {
   MeshBuffers,
 } from "../workers/geodesicWorker";
 import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
-import { applyMatrix4ToFlatPoints } from "../utils/measurement_utils";
-import type * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
 
 type MeasurementProps = {
   modelRef: RefObject<Object3D | null>;
   modelUrl: string | null;
   /** Present only once a splat scene has finished loading; null in mesh mode. */
-  splatMesh?: GaussianSplats3D.SplatMesh | null;
+  /**
+   * Flat, world-space, interleaved xyz splat centers - already extracted
+   * and transformed by whichever splat library is currently loaded (see
+   * sparkSplat_utils.ts's extractSparkSplatCenters). Keeps this component
+   * library-agnostic: it doesn't know or care whether the centers came
+   * from Spark, GaussianSplats3D, or anything else, only that it's a
+   * plain Float32Array - same reason buildSplatGraph/geodesicWorker.ts
+   * were already written this way.
+   */
+  splatCenters?: Float32Array | null;
 };
 
 type DrapedResult = { points: Vector3[]; distance: number };
@@ -24,7 +31,7 @@ type DrapedResult = { points: Vector3[]; distance: number };
 export const Measurement = ({
   modelRef,
   modelUrl,
-  splatMesh,
+  splatCenters,
 }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
@@ -138,41 +145,40 @@ export const Measurement = ({
     worker.postMessage(message, transfer);
   }, [modelUrl]);
 
-  // Rebuild the SPLAT graph whenever a new splat scene finishes loading.
-  // Keyed on the splatMesh instance itself (a fresh object per successful
-  // load, per SplatViewer's fresh-instance-per-effect pattern) rather than
-  // modelUrl, since splatMesh only becomes available once the load has
-  // actually completed - avoiding the ref-timing issue we hit earlier with
-  // camera framing.
+  // Rebuild the SPLAT graph whenever a new splatCenters array arrives -
+  // keyed on the array's own identity, which changes exactly once per
+  // successful splat load (see extractSparkSplatCenters /
+  // handleSparkSplatLoad), same reasoning as keying on splatMesh identity
+  // used to have. Extraction/world-space transform already happened
+  // upstream - this effect doesn't know or care which splat library
+  // produced the array.
   useEffect(() => {
     const worker = workerRef.current;
-    if (!worker || !splatMesh) return;
-
-    const splatCount = splatMesh.getSplatCount();
-    if (splatCount === 0) {
+    if (!worker || !splatCenters || splatCenters.length === 0) {
       graphReadyRef.current = false;
       setDraped(null);
       return;
     }
-
-    const centers = new Float32Array(splatCount * 3);
-    splatMesh.fillSplatDataArrays(null, null, null, centers, null, null, true);
-    splatMesh.updateMatrixWorld(true);
-    applyMatrix4ToFlatPoints(centers, splatMesh.matrixWorld.elements);
 
     const requestId = ++nextRequestId.current;
     graphRequestIdRef.current = requestId;
     graphReadyRef.current = false;
     setDraped(null);
 
+    // Deliberately NOT transferring ownership of splatCenters.buffer here -
+    // the array is owned by App-level React state (shared, not a
+    // throwaway created just for this message), and a transfer would
+    // detach/empty it out from under that state. A structured-clone copy
+    // costs a bit more, but for a few hundred thousand splats (a few MB)
+    // that's negligible next to the correctness risk.
     const message: GeodesicWorkerRequest = {
       type: "buildSplatGraph",
       requestId,
-      centers,
+      centers: splatCenters,
       k: 8,
     };
-    worker.postMessage(message, [centers.buffer]);
-  }, [splatMesh]);
+    worker.postMessage(message);
+  }, [splatCenters]);
 
   // Recompute the geodesic path whenever the measurement points (or the
   // freshly-built graph) change. Fully generic over mesh/splat - the

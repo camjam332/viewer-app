@@ -1,4 +1,4 @@
-import { Canvas, useThree } from "@react-three/fiber";
+import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
 import {
   Html,
@@ -45,7 +45,10 @@ import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SparkScene } from "./components/spark_Splat/SparkScene";
 import { SparkSplat } from "./components/spark_Splat/SparkSplat";
 import type { SplatMesh } from "@sparkjsdev/spark";
-import { handleSparkSplatLoad } from "./utils/spark_Splat/utils";
+import {
+  handleSparkSplatLoad,
+  handleSparkSplatClick,
+} from "./utils/spark_Splat/utils";
 
 // Module-level, not defined inside App - a stable reference with zero
 // per-render churn. This isn't a style nicety: SparkSplat's loading effect
@@ -159,7 +162,10 @@ function App() {
   const config = useAero((s) => s.config);
   const meshDeformation = useViewer((s) => s.meshDeformation);
   const clearPoints = useMeasurement((s) => s.clearPoints);
+  const addPoint = useMeasurement((s) => s.addPoint);
+  const addAnnotation = useViewer((s) => s.addAnnotation);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
+  const tool = useViewer((s) => s.tool);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
@@ -174,6 +180,7 @@ function App() {
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
     null,
   );
+  const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
 
   const handleRetry = useCallback(() => {
@@ -205,6 +212,7 @@ function App() {
     setMeshDeformation(false);
     setErrorMessage(null);
     setLoadedSplatMesh(null);
+    setSplatCenters(null);
   }, [effectiveModelUrl]);
 
   useEffect(() => {
@@ -226,8 +234,23 @@ function App() {
         setMarkerScale,
         clearPoints,
         setLoadedSplatMesh,
+        setSplatCenters,
       }),
     [selectedModel, setMarkerScale, clearPoints],
+  );
+
+  const handleSplatClick = useCallback(
+    (event: ThreeEvent<MouseEvent>) => {
+      if (!splatRef.current) return;
+      handleSparkSplatClick(event, splatRef.current, {
+        tool,
+        addPoint,
+        addAnnotation,
+        effectiveModelUrl,
+        splatCenters,
+      });
+    },
+    [tool, addPoint, addAnnotation, effectiveModelUrl, splatCenters],
   );
 
   useEffect(() => {
@@ -314,6 +337,7 @@ function App() {
               url={effectiveModelUrl}
               onLoad={handleSplatLoad}
               onError={logSparkSplatError}
+              onClick={handleSplatClick}
             />
           </>
         )}
@@ -350,9 +374,13 @@ function App() {
               resetCameraPos={resetCamera}
             />
             <Annotations />
+            <Measurement
+              modelRef={modelRef}
+              modelUrl={effectiveModelUrl}
+              splatCenters={splatCenters}
+            />
             {!isSplatModel && (
               <>
-                <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
                 <FrameOnLoad
                   controlsRef={cameraControlsRef}
                   modelRef={modelRef}
