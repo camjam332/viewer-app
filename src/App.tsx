@@ -262,9 +262,7 @@ function App() {
       {errorMessage && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg bg-black/80 p-4 text-center text-white backdrop-blur break-words">
-            <h1 className="text-lg font-semibold md:text-xl">
-              {errorMessage}
-            </h1>
+            <h1 className="text-lg font-semibold md:text-xl">{errorMessage}</h1>
             <button
               type="button"
               onClick={handleRetry}
@@ -291,7 +289,7 @@ function App() {
         // rendering with no visual benefit for it, confirmed as a real
         // GPU-side bottleneck by a performance trace on this app.
         gl={{ antialias: false }}
-        //frameloop={isSplatModel ? "always" : "demand"}
+        frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
         {/* <Stats /> */}
@@ -303,10 +301,9 @@ function App() {
             axisColors={["red", "green", "blue"]}
             labelColor="white"
           />
-          {/* alternative: <GizmoViewcube /> */}
         </GizmoHelper>
         <CameraControls ref={cameraControlsRef} makeDefault />
-        {/* <InvalidateBridge /> */}
+        <InvalidateBridge />
 
         {isSplatModel && effectiveModelUrl && (
           <>
