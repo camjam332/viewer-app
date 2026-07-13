@@ -50,17 +50,6 @@ import {
   handleSparkSplatClick,
 } from "./utils/spark_Splat/utils";
 
-// Module-level, not defined inside App - a stable reference with zero
-// per-render churn. This isn't a style nicety: SparkSplat's loading effect
-// has `onError` in its dependency array, so an inline arrow function
-// created fresh on every App render would make that effect tear down and
-// re-run on every render - the exact bug already root-caused twice
-// earlier this session for onLoad and onSplatClick, just reintroduced
-// here via onError.
-function logSparkSplatError(err: unknown) {
-  console.error("[spark splat] failed:", err);
-}
-
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
   focused: Annotation | null;
@@ -192,6 +181,18 @@ function App() {
     setErrorMessage(null);
     setRetryToken((t) => t + 1);
   }, [effectiveModelUrl]);
+
+  // setErrorMessage is a useState setter - React guarantees its identity
+  // never changes across renders, so wrapping it here keeps this callback
+  // just as stable as the old module-level logSparkSplatError was. That
+  // stability is load-bearing, not a style choice: SparkSplat's loading
+  // effect has `onError` in its dependency array, so an unstable
+  // reference here would make that effect tear down and re-run on every
+  // App render - the exact reload-loop bug already root-caused twice
+  // earlier this session for onLoad and onSplatClick.
+  const handleSplatError = useCallback((err: unknown) => {
+    setErrorMessage(err instanceof Error ? err.message : String(err));
+  }, []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
     [config.flowYawDeg, config.flowPitchDeg],
@@ -311,7 +312,7 @@ function App() {
         // as a meaningful performance cost specific to Gaussian splat
         // rendering with no visual benefit for it, confirmed as a real
         // GPU-side bottleneck by a performance trace on this app.
-        gl={{ antialias: false }}
+        gl={{ antialias: isSplatModel ? false : true }}
         frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
@@ -332,11 +333,11 @@ function App() {
           <>
             <SparkScene />
             <SparkSplat
-              key={effectiveModelUrl}
+              key={`${effectiveModelUrl}-${retryToken}`}
               ref={splatRef}
               url={effectiveModelUrl}
               onLoad={handleSplatLoad}
-              onError={logSparkSplatError}
+              onError={handleSplatError}
               onClick={handleSplatClick}
             />
           </>
