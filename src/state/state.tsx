@@ -49,8 +49,8 @@ const models: ModelOption[] = [
   //   splatViewMode: "interior",
   // },
   // {
-  //   modelUrl:
-  //     "https://huggingface.co/cakewalk/splat-data/resolve/main/stump.splat",
+  //   modelUrl: "/models/stump.splat",
+  //   "https://huggingface.co/cakewalk/splat-data/resolve/main/stump.splat",
   //   name: "Stump (Splat)",
   //   kind: "splat",
   //   splatViewMode: "interior",

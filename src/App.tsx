@@ -237,7 +237,7 @@ function App() {
         setLoadedSplatMesh,
         setSplatCenters,
       }),
-    [selectedModel, setMarkerScale, clearPoints],
+    [selectedModel, setMarkerScale, clearPoints, effectiveModelUrl],
   );
 
   const handleSplatClick = useCallback(

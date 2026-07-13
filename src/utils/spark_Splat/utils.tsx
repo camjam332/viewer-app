@@ -1,11 +1,15 @@
 import type { SplatMesh } from "@sparkjsdev/spark";
-import { MathUtils, Quaternion, Vector3 } from "three";
+import { Quaternion, Vector3 } from "three";
 import type { CameraControls } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
 import type { RefObject } from "react";
 import type { ModelOption } from "../../ui/ModelPicker";
 import type { Tool } from "../../state/state";
 import { applyMatrix4ToFlatPoints } from "../measurement_utils";
+import {
+  detectOrientationFromSamples,
+  type SplatOrientationSamples,
+} from "../splatOrientation_utils";
 
 // Same plain-function pattern as mkkellogSplat_utils.ts, for the same
 // reason - useCallback can't be called at module scope, so the actual
@@ -42,6 +46,75 @@ export function extractSparkSplatCenters(splatMesh: SplatMesh): Float32Array {
   return centers;
 }
 
+/**
+ * Samples up to sampleCount splats (evenly strided across the full set)
+ * and produces world-space centers + normals for
+ * detectOrientationFromSamples. One getSplat() call per sample gives
+ * center+scales+quaternion together - simpler than GaussianSplats3D's
+ * two-call pattern (getSplatCenter + getSplatScaleAndRotation), though
+ * unlike that library's applySceneTransform option, Spark's getSplat()
+ * always returns local/object-space data - matrixWorld's rotation and
+ * translation are applied manually here instead.
+ *
+ * Deliberately called BEFORE any orientation correction is applied to the
+ * SplatMesh (i.e. while its matrixWorld is still whatever it started at,
+ * normally identity) - this samples the scene's raw, as-loaded
+ * orientation to compute a correction, not an already-corrected one.
+ */
+export function sampleSparkSplatOrientation(
+  splatMesh: SplatMesh,
+  sampleCount = 20000,
+): SplatOrientationSamples {
+  const totalSplats = splatMesh.packedSplats?.numSplats ?? 0;
+  if (totalSplats === 0 || !splatMesh.packedSplats) {
+    return { centers: new Float32Array(0), normals: new Float32Array(0) };
+  }
+
+  const step = Math.max(1, Math.floor(totalSplats / sampleCount));
+  const sampleIndices: number[] = [];
+  for (let i = 0; i < totalSplats; i += step) sampleIndices.push(i);
+
+  const centers = new Float32Array(sampleIndices.length * 3);
+  const normals = new Float32Array(sampleIndices.length * 3);
+
+  splatMesh.updateMatrixWorld(true);
+  const worldQuat = new Quaternion().setFromRotationMatrix(
+    splatMesh.matrixWorld,
+  );
+  const localAxis = new Vector3();
+  const worldNormal = new Vector3();
+  const worldCenter = new Vector3();
+
+  for (let s = 0; s < sampleIndices.length; s++) {
+    const splat = splatMesh.packedSplats.getSplat(sampleIndices[s]);
+
+    const sx = splat.scales.x,
+      sy = splat.scales.y,
+      sz = splat.scales.z;
+    if (sx <= sy && sx <= sz) localAxis.set(1, 0, 0);
+    else if (sy <= sx && sy <= sz) localAxis.set(0, 1, 0);
+    else localAxis.set(0, 0, 1);
+
+    worldNormal
+      .copy(localAxis)
+      .applyQuaternion(splat.quaternion)
+      .applyQuaternion(worldQuat);
+    if (worldNormal.lengthSq() > 1e-12) {
+      worldNormal.normalize();
+      normals[s * 3] = worldNormal.x;
+      normals[s * 3 + 1] = worldNormal.y;
+      normals[s * 3 + 2] = worldNormal.z;
+    } // else leave as (0,0,0) - the degenerate "skip" marker
+
+    worldCenter.copy(splat.center).applyMatrix4(splatMesh.matrixWorld);
+    centers[s * 3] = worldCenter.x;
+    centers[s * 3 + 1] = worldCenter.y;
+    centers[s * 3 + 2] = worldCenter.z;
+  }
+
+  return { centers, normals };
+}
+
 export type HandleSparkSplatLoadDeps = {
   cameraControlsRef: RefObject<CameraControls | null>;
   selectedModel: ModelOption | undefined;
@@ -68,15 +141,13 @@ export function handleSparkSplatLoad(
 
   const viewMode = selectedModel?.splatViewMode ?? "object";
 
-  if (viewMode === "interior") {
-    splatMesh.quaternion.premultiply(
-      new Quaternion().setFromAxisAngle(
-        new Vector3(0, 0, 1),
-        MathUtils.degToRad(180),
-      ),
-    );
-    splatMesh.updateMatrixWorld(true);
-  }
+  // if (viewMode === "interior") {
+  //   const orientation = detectOrientationFromSamples(
+  //     sampleSparkSplatOrientation(splatMesh),
+  //   );
+  //   splatMesh.quaternion.copy(orientation);
+  //   splatMesh.updateMatrixWorld(true);
+  // }
 
   // centers_only=false accounts for each splat's actual ellipsoid extent
   // (rotated + scaled per-splat), not just its center point - a more
