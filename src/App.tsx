@@ -6,6 +6,8 @@ import {
   CameraControls,
   Grid,
   TransformControls,
+  GizmoHelper,
+  GizmoViewport,
 } from "@react-three/drei";
 import {
   Suspense,
@@ -24,7 +26,7 @@ import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import type { Annotation } from "./state/state";
-import { Box3, Mesh, Vector3, type Group } from "three";
+import { Box3, Mesh, type Group } from "three";
 import {
   FieldContext,
   StreamlineField,
@@ -39,8 +41,21 @@ import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
 import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
-import { SplatViewer, type SplatHit } from "./components/Splat/SplatViewer";
-import * as GaussianSplats3D from "@mkkellogg/gaussian-splats-3d";
+import { SparkScene } from "./components/spark_Splat/SparkScene";
+import { SparkSplat } from "./components/spark_Splat/SparkSplat";
+import type { SplatMesh } from "@sparkjsdev/spark";
+import { handleSparkSplatLoad } from "./utils/spark_Splat/utils";
+
+// Module-level, not defined inside App - a stable reference with zero
+// per-render churn. This isn't a style nicety: SparkSplat's loading effect
+// has `onError` in its dependency array, so an inline arrow function
+// created fresh on every App render would make that effect tear down and
+// re-run on every render - the exact bug already root-caused twice
+// earlier this session for onLoad and onSplatClick, just reintroduced
+// here via onError.
+function logSparkSplatError(err: unknown) {
+  console.error("[spark splat] failed:", err);
+}
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -138,13 +153,10 @@ function App() {
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
-  const splatRef = useRef<Group | null>(null);
+  const splatRef = useRef<SplatMesh | null>(null);
   const prevModelFieldRef = useRef<ModelFieldInfo | null>(null);
   const config = useAero((s) => s.config);
   const meshDeformation = useViewer((s) => s.meshDeformation);
-  const tool = useViewer((s) => s.tool);
-  const addAnnotation = useViewer((s) => s.addAnnotation);
-  const addPoint = useMeasurement((s) => s.addPoint);
   const clearPoints = useMeasurement((s) => s.clearPoints);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
 
@@ -156,8 +168,9 @@ function App() {
   const activeObjectRef = isSplatModel ? splatRef : modelRef;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
-  const [loadedSplatMesh, setLoadedSplatMesh] =
-    useState<GaussianSplats3D.SplatMesh | null>(null);
+  const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
+    null,
+  );
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -188,45 +201,20 @@ function App() {
     prevModelFieldRef.current = modelField;
   }, [modelField]);
 
+  // Thin wrapper: actual logic lives in sparkSplat_utils.ts as a plain
+  // function (useCallback can't be called at module scope), this just
+  // closes over the current App-level state/refs and forwards them in.
   const handleSplatLoad = useCallback(
-    (viewer: GaussianSplats3D.DropInViewer) => {
-      const splatMesh = viewer.splatMesh;
-      if (!splatMesh || !cameraControlsRef.current) return;
-      if (splatMesh.getSplatCount() === 0) return;
-
-      splatMesh.updateMatrixWorld(true);
-      const box = splatMesh
-        .computeBoundingBox(true)
-        .applyMatrix4(splatMesh.matrixWorld);
-
-      setMarkerScale(box.max.x - box.min.x);
-      clearPoints();
-      cameraControlsRef.current.reset(false);
-      cameraControlsRef.current.fitToBox(box, false);
-      cameraControlsRef.current.saveState();
-      setLoadedSplatMesh(splatMesh);
-    },
-    [setMarkerScale, clearPoints],
+    (splatMesh: SplatMesh) =>
+      handleSparkSplatLoad(splatMesh, {
+        cameraControlsRef,
+        selectedModel,
+        setMarkerScale,
+        clearPoints,
+        setLoadedSplatMesh,
+      }),
+    [selectedModel, setMarkerScale, clearPoints],
   );
-
-  const splatClick = (hit: SplatHit) => {
-    if (!hit) return;
-    if (tool === "measure") {
-      const point = new Vector3(...hit.point);
-      addPoint(point);
-    }
-    if (tool === "annotate" && splatRef.current) {
-      let normal: [number, number, number] = [0, 0, 1];
-      if (hit.normal) {
-        const normalVals = hit.normal
-          .clone()
-          .transformDirection(splatRef.current.matrixWorld);
-        normal = [normalVals.x, normalVals.y, normalVals.z];
-      }
-      const position: [number, number, number] = hit.point;
-      addAnnotation(position, normal, effectiveModelUrl ?? undefined);
-    }
-  };
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -267,21 +255,40 @@ function App() {
           height: "100%",
         }}
         camera={{ near: 0.001, far: 1000 }}
-        frameloop={isSplatModel ? "always" : "demand"}
+        // R3F defaults antialias to true (unlike vanilla Three.js's own
+        // false default) - Spark's own source explicitly documents this
+        // as a meaningful performance cost specific to Gaussian splat
+        // rendering with no visual benefit for it, confirmed as a real
+        // GPU-side bottleneck by a performance trace on this app.
+        gl={{ antialias: false }}
+        //frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
         {/* <Stats /> */}
+        <GizmoHelper
+          alignment="bottom-right" // widget alignment within scene
+          margin={[80, 80]} // widget margins (X, Y)
+        >
+          <GizmoViewport
+            axisColors={["red", "green", "blue"]}
+            labelColor="white"
+          />
+          {/* alternative: <GizmoViewcube /> */}
+        </GizmoHelper>
         <CameraControls ref={cameraControlsRef} makeDefault />
-        <InvalidateBridge />
+        {/* <InvalidateBridge /> */}
 
         {isSplatModel && effectiveModelUrl && (
-          <SplatViewer
-            key={effectiveModelUrl}
-            ref={splatRef}
-            url={effectiveModelUrl}
-            onLoad={handleSplatLoad}
-            onSplatClick={splatClick}
-          />
+          <>
+            <SparkScene />
+            <SparkSplat
+              key={effectiveModelUrl}
+              ref={splatRef}
+              url={effectiveModelUrl}
+              onLoad={handleSplatLoad}
+              onError={logSparkSplatError}
+            />
+          </>
         )}
 
         <ErrorBoundary
@@ -316,13 +323,9 @@ function App() {
               resetCameraPos={resetCamera}
             />
             <Annotations />
-            <Measurement
-              modelRef={modelRef}
-              modelUrl={effectiveModelUrl}
-              splatMesh={loadedSplatMesh}
-            />
             {!isSplatModel && (
               <>
+                <Measurement modelRef={modelRef} modelUrl={effectiveModelUrl} />
                 <FrameOnLoad
                   controlsRef={cameraControlsRef}
                   modelRef={modelRef}

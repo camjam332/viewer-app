@@ -3,7 +3,7 @@
 // extend as needed. (A community-typed fork, guyettinger/gle-gaussian-splat-3d,
 // also exists if full API coverage becomes worth the dependency swap.)
 declare module "@mkkellogg/gaussian-splats-3d" {
-  import { Group, Mesh, Camera, Box3 } from "three";
+  import { Group, Mesh, Camera, Box3, Vector3, Quaternion } from "three";
 
   export interface DropInViewerOptions {
     sharedMemoryForWorkers?: boolean;
@@ -27,8 +27,8 @@ declare module "@mkkellogg/gaussian-splats-3d" {
   }
 
   export interface SplatHit {
-    origin: import("three").Vector3;
-    normal: import("three").Vector3;
+    origin: Vector3;
+    normal: Vector3;
     distance: number;
     splatIndex: number;
   }
@@ -53,6 +53,20 @@ declare module "@mkkellogg/gaussian-splats-3d" {
       centers: Float32Array | null,
       colors: Uint8Array | null,
       sphericalHarmonics: Float32Array | null,
+      applySceneTransform?: boolean,
+    ): void;
+    // Both mutate the passed-in output object in place and return void -
+    // same "output parameter" convention as fillSplatDataArrays, just for
+    // a single splat by global index instead of the whole mesh at once.
+    getSplatCenter(
+      globalIndex: number,
+      outCenter: Vector3,
+      applySceneTransform?: boolean,
+    ): void;
+    getSplatScaleAndRotation(
+      globalIndex: number,
+      outScale: Vector3,
+      outRotation: Quaternion,
       applySceneTransform?: boolean,
     ): void;
   }

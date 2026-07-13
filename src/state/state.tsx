@@ -35,19 +35,25 @@ const models: ModelOption[] = [
     kind: "mesh",
   },
   {
-    modelUrl: "/models/nike.splat",
+    modelUrl:
+      "https://huggingface.co/cakewalk/splat-data/resolve/main/nike.splat",
     name: "Nike (Splat)",
     kind: "splat",
+    splatViewMode: "object",
   },
   {
-    modelUrl: "/models/room.splat",
+    modelUrl:
+      "https://huggingface.co/cakewalk/splat-data/resolve/main/room.splat",
     name: "Room (Splat)",
     kind: "splat",
+    splatViewMode: "interior",
   },
   {
-    modelUrl: "/models/stump.splat",
+    modelUrl:
+      "https://huggingface.co/cakewalk/splat-data/resolve/main/stump.splat",
     name: "Stump (Splat)",
     kind: "splat",
+    splatViewMode: "interior",
   },
 ];
 

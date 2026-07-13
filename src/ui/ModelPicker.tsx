@@ -10,6 +10,15 @@ export type ModelOption = {
   screenshotUrl?: string;
   /** Defaults to "mesh" when omitted - only splats need to set this */
   kind?: "mesh" | "splat";
+  /**
+   * Only relevant when kind is "splat". "object" (default) frames the
+   * whole model from outside via fitToBox - right for a discrete scanned
+   * object. "interior" starts the camera inside the bounding volume
+   * looking down its long axis, and auto-detects the up axis from the
+   * splat data itself - right for room/interior captures, where framing
+   * the entire box from outside puts the camera outside the walls.
+   */
+  splatViewMode?: "object" | "interior";
 };
 
 type ModelPickerProps = {
