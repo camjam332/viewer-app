@@ -26,8 +26,9 @@ import { useMeasurement } from "./state/measurementState";
 import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
+import { SplatTransformPanel } from "./ui/SplatTransformPanel";
 import type { Annotation } from "./state/state";
-import { Box3, Mesh, type Group } from "three";
+import { Box3, Mesh, MathUtils, type Group } from "three";
 import {
   FieldContext,
   StreamlineField,
@@ -170,6 +171,64 @@ function App() {
     null,
   );
   const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
+  const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
+    position: [number, number, number];
+    rotationDeg: [number, number, number];
+  } | null>(null);
+
+  // Reads the live transform straight off the Object3D rather than any
+  // React state - TransformControls' gizmo mutates position/rotation
+  // directly (imperatively), so this is the only source of truth for
+  // "what is it right now", not something React already knows.
+  // Accepts an explicit object (bypassing splatRef entirely) for the
+  // load-time call - splatRef.current isn't reliably attached yet at that
+  // point, since <Canvas> runs on R3F's own separate reconciler from the
+  // DOM-based root App renders on, and there's no cross-reconciler
+  // guarantee that R3F's ref attachment has committed before this
+  // component's own effects run. Falls back to splatRef.current for the
+  // onObjectChange (drag) case, where the object is already known-live.
+  const readSplatTransform = useCallback((obj?: SplatMesh | null) => {
+    const target = obj ?? splatRef.current;
+    if (!target) {
+      setSplatTransformDisplay(null);
+      return;
+    }
+    setSplatTransformDisplay({
+      position: [target.position.x, target.position.y, target.position.z],
+      rotationDeg: [
+        MathUtils.radToDeg(target.rotation.x),
+        MathUtils.radToDeg(target.rotation.y),
+        MathUtils.radToDeg(target.rotation.z),
+      ],
+    });
+  }, []);
+
+  const handleSplatPositionEdit = useCallback(
+    (axis: 0 | 1 | 2, value: number) => {
+      const obj = splatRef.current;
+      if (!obj) return;
+      if (axis === 0) obj.position.x = value;
+      else if (axis === 1) obj.position.y = value;
+      else obj.position.z = value;
+      obj.updateMatrixWorld(true);
+      readSplatTransform();
+    },
+    [readSplatTransform],
+  );
+
+  const handleSplatRotationEdit = useCallback(
+    (axis: 0 | 1 | 2, degrees: number) => {
+      const obj = splatRef.current;
+      if (!obj) return;
+      const rad = MathUtils.degToRad(degrees);
+      if (axis === 0) obj.rotation.x = rad;
+      else if (axis === 1) obj.rotation.y = rad;
+      else obj.rotation.z = rad;
+      obj.updateMatrixWorld(true);
+      readSplatTransform();
+    },
+    [readSplatTransform],
+  );
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
 
   const handleRetry = useCallback(() => {
@@ -214,7 +273,17 @@ function App() {
     setErrorMessage(null);
     setLoadedSplatMesh(null);
     setSplatCenters(null);
+    setSplatTransformDisplay(null);
   }, [effectiveModelUrl]);
+
+  // Reads the transform once a splat finishes loading (and, for interior
+  // mode, once detectOrientationFromSamples has already been applied to
+  // it inside handleSparkSplatLoad) - without this, the panel would show
+  // stale/empty values until the user first touched the gizmo.
+  // splatTransformDisplay is populated directly inside handleSplatLoad
+  // below, using the SplatMesh parameter it already receives - not via a
+  // separate effect reading splatRef.current, which isn't reliably
+  // attached yet at load time (see readSplatTransform's comment).
 
   useEffect(() => {
     const prev = prevModelFieldRef.current;
@@ -228,7 +297,7 @@ function App() {
   // function (useCallback can't be called at module scope), this just
   // closes over the current App-level state/refs and forwards them in.
   const handleSplatLoad = useCallback(
-    (splatMesh: SplatMesh) =>
+    (splatMesh: SplatMesh) => {
       handleSparkSplatLoad(splatMesh, {
         cameraControlsRef,
         selectedModel,
@@ -236,8 +305,13 @@ function App() {
         clearPoints,
         setLoadedSplatMesh,
         setSplatCenters,
-      }),
-    [selectedModel, setMarkerScale, clearPoints, effectiveModelUrl],
+      });
+      // Uses the splatMesh parameter directly rather than splatRef.current -
+      // see readSplatTransform's comment for why the ref isn't reliable yet
+      // at this exact point.
+      readSplatTransform(splatMesh);
+    },
+    [selectedModel, setMarkerScale, clearPoints, readSplatTransform],
   );
 
   const handleSplatClick = useCallback(
@@ -281,6 +355,14 @@ function App() {
         <Toolbar modelRef={modelRef} />
         {!isSplatModel && (
           <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
+        )}
+        {isSplatModel && showTransformControls && splatTransformDisplay && (
+          <SplatTransformPanel
+            position={splatTransformDisplay.position}
+            rotationDeg={splatTransformDisplay.rotationDeg}
+            onPositionChange={handleSplatPositionEdit}
+            onRotationChange={handleSplatRotationEdit}
+          />
         )}
       </div>
       {errorMessage && (
@@ -365,6 +447,7 @@ function App() {
               <TransformControls
                 object={activeObjectRef as RefObject<Group>}
                 mode={transformControlsMode}
+                onObjectChange={() => readSplatTransform()}
               />
             )}
             <CameraFocus

@@ -141,13 +141,13 @@ export function handleSparkSplatLoad(
 
   const viewMode = selectedModel?.splatViewMode ?? "object";
 
-  // if (viewMode === "interior") {
-  //   const orientation = detectOrientationFromSamples(
-  //     sampleSparkSplatOrientation(splatMesh),
-  //   );
-  //   splatMesh.quaternion.copy(orientation);
-  //   splatMesh.updateMatrixWorld(true);
-  // }
+  if (viewMode === "interior") {
+    const orientation = detectOrientationFromSamples(
+      sampleSparkSplatOrientation(splatMesh),
+    );
+    splatMesh.quaternion.copy(orientation);
+    splatMesh.updateMatrixWorld(true);
+  }
 
   // centers_only=false accounts for each splat's actual ellipsoid extent
   // (rotated + scaled per-splat), not just its center point - a more
