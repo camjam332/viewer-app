@@ -35,26 +35,23 @@ const models: ModelOption[] = [
     kind: "mesh",
   },
   {
-    modelUrl: "/models/nike.splat",
-    //"https://huggingface.co/cakewalk/splat-data/resolve/main/nike.splat",
+    modelUrl: "/models/nike.spz",
     name: "Nike (Splat)",
     kind: "splat",
     splatViewMode: "object",
   },
-  // {
-  //   modelUrl: "/models/room.splat",
-  //   "https://huggingface.co/cakewalk/splat-data/resolve/main/room.splat",
-  //   name: "Room (Splat)",
-  //   kind: "splat",
-  //   splatViewMode: "interior",
-  // },
-  // {
-  //   modelUrl: "/models/stump.splat",
-  //   "https://huggingface.co/cakewalk/splat-data/resolve/main/stump.splat",
-  //   name: "Stump (Splat)",
-  //   kind: "splat",
-  //   splatViewMode: "interior",
-  // },
+  {
+    modelUrl: "/models/room.spz",
+    name: "Room (Splat)",
+    kind: "splat",
+    splatViewMode: "interior",
+  },
+  {
+    modelUrl: "/models/stump.spz",
+    name: "Stump (Splat)",
+    kind: "splat",
+    splatViewMode: "interior",
+  },
 ];
 
 export type Tool = "orbit" | "measure" | "annotate";
