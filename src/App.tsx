@@ -175,7 +175,8 @@ function App() {
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
     null,
   );
-  const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
+  // const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
+  const splatCentersRef = useRef<Float32Array | null>(null);
   const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
     position: [number, number, number];
     rotationDeg: [number, number, number];
@@ -293,7 +294,8 @@ function App() {
     setMeshDeformation(false);
     setErrorMessage(null);
     setLoadedSplatMesh(null);
-    setSplatCenters(null);
+    //setSplatCenters(null);
+    splatCentersRef.current = null;
     setSplatTransformDisplay(null);
     setSplatProgress(null);
   }, [effectiveModelUrl]);
@@ -326,7 +328,9 @@ function App() {
         setMarkerScale,
         clearPoints,
         setLoadedSplatMesh,
-        setSplatCenters,
+        setSplatCenters: (centers) => {
+          splatCentersRef.current = centers;
+        },
       });
       // Uses the splatMesh parameter directly rather than splatRef.current -
       // see readSplatTransform's comment for why the ref isn't reliable yet
@@ -345,10 +349,10 @@ function App() {
         addPoint,
         addAnnotation,
         effectiveModelUrl,
-        splatCenters,
+        splatCentersRef,
       });
     },
-    [tool, addPoint, addAnnotation, effectiveModelUrl, splatCenters],
+    [tool, addPoint, addAnnotation, effectiveModelUrl, splatCentersRef.current],
   );
 
   useEffect(() => {
@@ -490,7 +494,7 @@ function App() {
             <Measurement
               modelRef={modelRef}
               modelUrl={effectiveModelUrl}
-              splatCenters={splatCenters}
+              splatCenters={splatCentersRef.current}
             />
             {!isSplatModel && (
               <>

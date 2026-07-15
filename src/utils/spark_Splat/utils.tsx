@@ -5,11 +5,11 @@ import type { ThreeEvent } from "@react-three/fiber";
 import type { RefObject } from "react";
 import type { ModelOption } from "../../ui/ModelPicker";
 import type { Tool } from "../../state/state";
-import { applyMatrix4ToFlatPoints } from "../measurement_utils";
 import {
   detectOrientationFromSamples,
   type SplatOrientationSamples,
 } from "../splatOrientation_utils";
+import SplatCentersWorker from "./splatCenters.worker?worker";
 
 // Same plain-function pattern as mkkellogSplat_utils.ts, for the same
 // reason - useCallback can't be called at module scope, so the actual
@@ -28,24 +28,44 @@ import {
  * Local/object-space centers - matrixWorld is applied afterward, same
  * pattern as getBoundingBox()'s usage in handleSparkSplatLoad.
  */
-export function extractSparkSplatCenters(
+/**
+ * Asynchronously extracts splat centers off the main thread using a Web Worker.
+ */
+export function extractSparkSplatCentersAsync(
   splatMesh: SplatMesh,
-): Float32Array<ArrayBufferLike> {
-  const numSplats = splatMesh.packedSplats?.numSplats ?? 0;
-  const centers = new Float32Array(numSplats * 3);
+): Promise<Float32Array> {
+  return new Promise((resolve, reject) => {
+    const numSplats = splatMesh.packedSplats?.numSplats ?? 0;
+    const centers = new Float32Array(numSplats * 3);
 
-  let i = 0;
-  splatMesh.packedSplats?.forEachSplat((_index, center) => {
-    centers[i * 3] = center.x;
-    centers[i * 3 + 1] = center.y;
-    centers[i * 3 + 2] = center.z;
-    i++;
+    let i = 0;
+    splatMesh.packedSplats?.forEachSplat((_index, center) => {
+      centers[i * 3] = center.x;
+      centers[i * 3 + 1] = center.y;
+      centers[i * 3 + 2] = center.z;
+      i++;
+    });
+
+    splatMesh.updateMatrixWorld(true);
+    const matrixElements = Array.from(splatMesh.matrixWorld.elements);
+
+    // Spin up the worker
+    const worker = new SplatCentersWorker();
+
+    worker.onmessage = (e: MessageEvent<Float32Array>) => {
+      resolve(e.data);
+      worker.terminate(); // Clean up thread resources
+    };
+
+    worker.onerror = (err) => {
+      reject(err);
+      worker.terminate();
+    };
+
+    // The second array transfers ownership of the underlying buffer
+    // ensuring the main thread doesn't lock up duplicating memory blocks.
+    worker.postMessage({ centers, matrixElements }, [centers.buffer]);
   });
-
-  splatMesh.updateMatrixWorld(true);
-  applyMatrix4ToFlatPoints(centers, splatMesh.matrixWorld.elements);
-
-  return centers;
 }
 
 /**
@@ -173,7 +193,13 @@ export function handleSparkSplatLoad(
 
   cameraControlsRef.current.saveState();
   setLoadedSplatMesh(splatMesh);
-  // setSplatCenters(extractSparkSplatCenters(splatMesh));
+  extractSparkSplatCentersAsync(splatMesh)
+    .then((calculatedCenters) => {
+      setSplatCenters(calculatedCenters);
+    })
+    .catch((error) => {
+      console.error("Failed to extract splat centers off-thread:", error);
+    });
 }
 
 /**
@@ -256,7 +282,7 @@ export type SplatClickDeps = {
     modelUrl?: string,
   ) => void;
   effectiveModelUrl: string | null;
-  splatCenters: Float32Array | null;
+  splatCentersRef: RefObject<Float32Array<ArrayBufferLike> | null>;
 };
 
 export function handleSparkSplatClick(
@@ -264,7 +290,7 @@ export function handleSparkSplatClick(
   splatMesh: SplatMesh,
   deps: SplatClickDeps,
 ): void {
-  const { tool, addPoint, addAnnotation, effectiveModelUrl, splatCenters } =
+  const { tool, addPoint, addAnnotation, effectiveModelUrl, splatCentersRef } =
     deps;
 
   if (tool === "measure") {
@@ -276,10 +302,10 @@ export function handleSparkSplatClick(
   if (tool === "annotate") {
     let normal: [number, number, number] = [0, 0, 1];
     const point = event.point.clone();
-    if (splatCenters && splatCenters.length > 0) {
+    if (splatCentersRef.current && splatCentersRef.current.length > 0) {
       const n = estimateSparkSplatNormal(
         splatMesh,
-        splatCenters,
+        splatCentersRef.current,
         point,
         event.camera.position,
       );
