@@ -55,6 +55,7 @@ import {
   handleSparkSplatLoad,
   handleSparkSplatClick,
 } from "./utils/spark_Splat/utils";
+import { ToastNotification } from "./ui/ToastNotification";
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
 // written directly in JSX creates a brand-new array on every single App
@@ -208,7 +209,6 @@ function App() {
   // doesn't make that work any faster, it's a detection mechanism so the
   // UI can at least show something during it instead of silently
   // freezing with no explanation).
-  const [isPreparingSplatData, setIsPreparingSplatData] = useState(false);
 
   // Stable (empty deps) - required, not a style choice: this gets passed
   // as SparkSplat's onProgress prop, which sits in that component's
@@ -299,7 +299,6 @@ function App() {
   const handleSplatError = useCallback((err: unknown) => {
     setErrorMessage(err instanceof Error ? err.message : String(err));
     setSplatProgress(null);
-    setIsPreparingSplatData(false);
   }, []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -325,7 +324,6 @@ function App() {
     splatCentersRef.current = null;
     setSplatTransformDisplay(null);
     setSplatProgress(null);
-    setIsPreparingSplatData(false);
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -358,8 +356,6 @@ function App() {
         setLoadedSplatMesh,
         applySplatCenters: (forState, forClicks) => {
           splatCentersRef.current = forClicks;
-          setIsPreparingSplatData(true);
-
           // Yield one frame before triggering the actual update - without
           // this, setSplatCenters below could get batched into the very
           // same blocking render pass as setIsPreparingSplatData itself,
@@ -367,7 +363,6 @@ function App() {
           // to actually paint before the freeze begins.
           requestAnimationFrame(() => {
             setSplatCenters(forState);
-
             // Queued behind whatever setSplatCenters ends up triggering,
             // however long that turns out to be - a callback scheduled
             // here genuinely cannot run until the main thread is free
@@ -377,7 +372,7 @@ function App() {
             // on the browser's own scheduling guarantee. This doesn't
             // make the underlying cascade any faster.
             requestAnimationFrame(() => {
-              setIsPreparingSplatData(false);
+              setSplatProgress(null);
             });
           });
         },
@@ -387,7 +382,6 @@ function App() {
       // see readSplatTransform's comment for why the ref isn't reliable yet
       // at this exact point.
       readSplatTransform(splatMesh);
-      setSplatProgress(null);
     },
     [selectedModel, setMarkerScale, clearPoints, readSplatTransform],
   );
@@ -457,13 +451,9 @@ function App() {
           </div>
         </div>
       )}
+      <ToastNotification />
       {isSplatModel ? (
-        <SplatLoadProgress
-          progress={splatProgress}
-          indeterminateMessage={
-            isPreparingSplatData ? "Preparing measurement data…" : null
-          }
-        />
+        <SplatLoadProgress progress={splatProgress} />
       ) : (
         <Loader />
       )}

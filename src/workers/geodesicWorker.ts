@@ -51,6 +51,8 @@ let splatTree: SplatKDTree | null = null;
 let adjacency: AdjacencyGraph | null = null;
 let graphMode: "mesh" | "splat" | null = null;
 
+
+
 const ctx = self as unknown as Worker;
 
 function toGeometry({ position, index }: MeshBuffers): BufferGeometry {
@@ -71,7 +73,6 @@ function resetGraphState() {
 
 ctx.onmessage = (event: MessageEvent<GeodesicWorkerRequest>) => {
   const data = event.data;
-
   if (data.type === "buildGraph") {
     try {
       const merged = mergeGeometries(data.meshes.map(toGeometry));
@@ -183,7 +184,7 @@ ctx.onmessage = (event: MessageEvent<GeodesicWorkerRequest>) => {
         pts[idx * 3 + 2],
       ];
     }
-
+    console.log('start calculation')
     const { distance, path } = geodesicDistance(adjacency, startIdx, endIdx);
 
     const pathBuffer = new Float32Array(path.length * 3);
@@ -193,6 +194,7 @@ ctx.onmessage = (event: MessageEvent<GeodesicWorkerRequest>) => {
       pathBuffer[i * 3 + 1] = y;
       pathBuffer[i * 3 + 2] = z;
     }
+    console.log('finish calculation')
 
     ctx.postMessage(
       {

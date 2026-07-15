@@ -2,6 +2,8 @@ import type { Vector3 } from "three";
 import { create } from "zustand";
 
 type MeasurementState = {
+  buildingGraph: boolean;
+  setBuildingGraph: (b: boolean) => void;
   mode: "linear" | "geodesic";
   setMeasurementMode: (m: "linear" | "geodesic") => void;
   points: Vector3[];
@@ -12,6 +14,8 @@ type MeasurementState = {
 };
 
 export const useMeasurement = create<MeasurementState>((set) => ({
+  buildingGraph: false,
+  setBuildingGraph: (b) => set({ buildingGraph: b }),
   mode: "linear",
   setMeasurementMode: (mode) => set({ mode }),
   points: [],

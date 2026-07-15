@@ -12,11 +12,6 @@ export type SplatLoadProgressValue = {
 
 type SplatLoadProgressProps = {
   progress: SplatLoadProgressValue | null;
-  // Shown when there's no byte-level progress to report at all (e.g. the
-  // post-render main-thread work preparing geodesic measurement data) -
-  // a plain message rather than a percentage, since there's genuinely
-  // nothing granular to measure here, only a detected start/end.
-  indeterminateMessage?: string | null;
 };
 
 /**
@@ -33,23 +28,8 @@ type SplatLoadProgressProps = {
  * falls back to a plain "bytes loaded so far" readout with no percentage
  * or bar fill in that case.
  */
-export const SplatLoadProgress = ({
-  progress,
-  indeterminateMessage,
-}: SplatLoadProgressProps) => {
-  if (!progress && !indeterminateMessage) return null;
-
-  if (!progress) {
-    return (
-      <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
-        <div className="w-full max-w-md rounded-lg bg-black/80 p-4 text-center text-white backdrop-blur">
-          <h1 className="text-lg font-semibold md:text-xl">
-            {indeterminateMessage}
-          </h1>
-        </div>
-      </div>
-    );
-  }
+export const SplatLoadProgress = ({ progress }: SplatLoadProgressProps) => {
+  if (!progress) return null;
 
   const percent =
     progress.lengthComputable && progress.total > 0

@@ -279,7 +279,6 @@ export function handleSparkSplatLoad(
       // trust that nothing changed during the round-trip.
       if (splatRef.current !== splatMesh) return;
       applySplatCenters(forState, forClicks);
-      console.log("here");
     })
     .catch((error: unknown) => {
       console.error("Failed to extract splat centers off-thread:", error);

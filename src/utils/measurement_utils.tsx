@@ -319,7 +319,6 @@ export function buildSplatGraph(
     { length: count },
     () => new Map<number, number>(),
   );
-
   for (let i = 0; i < count; i++) {
     const x = points[i * 3];
     const y = points[i * 3 + 1];

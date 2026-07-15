@@ -36,6 +36,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
   const points = useMeasurement((s) => s.points);
   const measurementMode = useMeasurement((s) => s.mode);
   const surfaceDistance = useMeasurement((s) => s.surfaceDistance);
+  const buildingGraph = useMeasurement((s) => s.buildingGraph);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const config = useAero((s) => s.config);
   const showTransformControls = useViewer((s) => s.showTransformControls);
@@ -249,12 +250,14 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
                 >
                   Linear
                 </option>
-                <option
-                  value="geodesic"
-                  className="rounded bg-black/70 text-white px-2 py-1"
-                >
-                  Geodesic
-                </option>
+                {buildingGraph ? null : (
+                  <option
+                    value="geodesic"
+                    className="rounded bg-black/70 text-white px-2 py-1"
+                  >
+                    Geodesic
+                  </option>
+                )}
               </select>
             )}
           {points.length > 0 && (

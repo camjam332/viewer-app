@@ -37,6 +37,7 @@ export const Measurement = ({
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
   const markerScale = useViewer((s) => s.markerScale);
   const measurementMode = useMeasurement((s) => s.mode);
+  const setBuildingGraph = useMeasurement((s) => s.setBuildingGraph);
 
   const workerRef = useRef<Worker | null>(null);
   const nextRequestId = useRef(0);
@@ -61,6 +62,8 @@ export const Measurement = ({
       const data = event.data;
       if (data.type === "graphReady") {
         if (data.requestId !== graphRequestIdRef.current) return; // stale
+        console.log(data.type);
+        setBuildingGraph(false);
         graphReadyRef.current = true;
         setGraphReadyToken((t) => t + 1);
       } else if (data.type === "geodesicResult") {
@@ -142,6 +145,7 @@ export const Measurement = ({
       requestId,
       meshes,
     };
+    setBuildingGraph(true);
     worker.postMessage(message, transfer);
   }, [modelUrl]);
 
@@ -180,6 +184,8 @@ export const Measurement = ({
       centers: splatCenters,
       k: 8,
     };
+    console.log(message.type);
+    setBuildingGraph(true);
     worker.postMessage(message, [splatCenters.buffer]);
   }, [splatCenters]);
 
