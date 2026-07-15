@@ -52,6 +52,12 @@ const models: ModelOption[] = [
     kind: "splat",
     splatViewMode: "interior",
   },
+  {
+    modelUrl: "https://sparkjs.dev/assets/splats/butterfly.spz",
+    name: "Butterfly (Splat)",
+    kind: "splat",
+    splatViewMode: "object",
+  },
 ];
 
 export type Tool = "orbit" | "measure" | "annotate";

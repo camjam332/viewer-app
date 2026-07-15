@@ -2,7 +2,13 @@ import { Line } from "@react-three/drei";
 import { useMeasurement } from "../state/measurementState";
 import { useViewer } from "../state/state";
 import { BufferAttribute, Mesh, Object3D, Vector3 } from "three";
-import { useEffect, useRef, useState, type RefObject } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  type RefObject,
+} from "react";
 import type {
   GeodesicWorkerRequest,
   GeodesicWorkerResponse,
@@ -47,22 +53,25 @@ export const Measurement = ({
   const [graphReadyToken, setGraphReadyToken] = useState(0);
   const [draped, setDraped] = useState<DrapedResult | null>(null);
 
-  // The graph build (weld + adjacency, or k-d tree + kNN graph) and the
-  // Dijkstra search are both O(vertex/splat count) or worse, which freezes
-  // the main thread on dense meshes or large splat clouds. Offload them to
-  // a worker so the UI stays responsive.
-  useEffect(() => {
+  // Extracted so it can be called both at mount and whenever an
+  // in-flight worker needs to be replaced (see the splat-graph effect
+  // below) - not just for DRY's sake, this is what makes "cancel" mean
+  // something. Stable across renders: everything it closes over
+  // (setBuildingGraph/setSurfaceDistance are Zustand setters, the refs
+  // are refs, setGraphReadyToken/setDraped are useState setters) is
+  // guaranteed stable identity already, so an empty dependency array is
+  // correct here, not just convenient.
+  const createGeodesicWorker = useCallback((): Worker => {
     const worker = new Worker(
       new URL("../workers/geodesicWorker.ts", import.meta.url),
       { type: "module" },
     );
-    workerRef.current = worker;
 
     worker.onmessage = (event: MessageEvent<GeodesicWorkerResponse>) => {
       const data = event.data;
+      console.log(data.type);
       if (data.type === "graphReady") {
         if (data.requestId !== graphRequestIdRef.current) return; // stale
-        console.log(data.type);
         setBuildingGraph(false);
         graphReadyRef.current = true;
         setGraphReadyToken((t) => t + 1);
@@ -85,11 +94,20 @@ export const Measurement = ({
       }
     };
 
+    return worker;
+  }, []);
+
+  // The graph build (weld + adjacency, or k-d tree + kNN graph) and the
+  // Dijkstra search are both O(vertex/splat count) or worse, which freezes
+  // the main thread on dense meshes or large splat clouds. Offload them to
+  // a worker so the UI stays responsive.
+  useEffect(() => {
+    workerRef.current = createGeodesicWorker();
     return () => {
-      worker.terminate();
+      workerRef.current?.terminate();
       workerRef.current = null;
     };
-  }, []);
+  }, [createGeodesicWorker]);
 
   // Rebuild the MESH graph only when the model itself changes. Depends on
   // modelUrl rather than modelRef.current: mutating a ref doesn't trigger a
@@ -157,17 +175,40 @@ export const Measurement = ({
   // upstream - this effect doesn't know or care which splat library
   // produced the array.
   useEffect(() => {
-    const worker = workerRef.current;
-    if (!worker || !splatCenters || splatCenters.length === 0) {
-      graphReadyRef.current = false;
-      setDraped(null);
+    // Terminate and replace unconditionally, on every splatCenters
+    // change - including the transition to null while switching models,
+    // not just when new real centers arrive. buildSplatGraph runs as one
+    // synchronous call inside the worker's onmessage handler - once
+    // started, nothing can interrupt it short of killing the thread.
+    // Previously this only happened in the "have new centers" branch,
+    // which left a stale build running (real wasted CPU) for the entire
+    // gap between "model changed" and "new splat's centers are ready" -
+    // often several seconds - and left buildingGraph stuck at true for
+    // that whole window too.
+    if (workerRef.current) {
+      workerRef.current.terminate();
+    }
+    const freshWorker = createGeodesicWorker();
+    workerRef.current = freshWorker;
+
+    graphReadyRef.current = false;
+    setDraped(null);
+
+    // Setting this unconditionally, before checking whether there's
+    // actually new data to build - a splat B loaded while A's build was
+    // still in flight would otherwise call setBuildingGraph(true) while
+    // it was ALREADY true (never having been reset during the null gap
+    // above), which React sees as no change at all (true -> true bails
+    // out, no re-render) - exactly why ToastNotification's own
+    // buildingGraph-keyed effect was silently not re-firing for B.
+    setBuildingGraph(false);
+
+    if (!splatCenters || splatCenters.length === 0) {
       return;
     }
 
     const requestId = ++nextRequestId.current;
     graphRequestIdRef.current = requestId;
-    graphReadyRef.current = false;
-    setDraped(null);
 
     // Safe to transfer now - splatCenters here is a buffer produced
     // specifically for this effect's use (see splatCenters.worker.ts and
@@ -185,9 +226,20 @@ export const Measurement = ({
       k: 8,
     };
     console.log(message.type);
-    setBuildingGraph(true);
-    worker.postMessage(message, [splatCenters.buffer]);
-  }, [splatCenters]);
+
+    // Deferred one frame, not called synchronously right after
+    // setBuildingGraph(false) above - React 18's automatic batching
+    // would otherwise collapse a false-then-true within the same
+    // synchronous pass into a single "no net change" update whenever
+    // buildingGraph was already true entering this effect (exactly the
+    // A-still-building, B-just-arrived case this whole fix is for).
+    // Yielding one frame first forces the false to commit as its own,
+    // separate, observable render before the true that follows it.
+    requestAnimationFrame(() => {
+      setBuildingGraph(true);
+      freshWorker.postMessage(message, [splatCenters.buffer]);
+    });
+  }, [splatCenters, createGeodesicWorker]);
 
   // Recompute the geodesic path whenever the measurement points (or the
   // freshly-built graph) change. Fully generic over mesh/splat - the

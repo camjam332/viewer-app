@@ -1,7 +1,6 @@
 import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
 import {
-  Html,
   Environment,
   CameraControls,
   Grid,
@@ -160,6 +159,7 @@ function App() {
   const pruneUploadedAnnotations = useViewer((s) => s.pruneUploadedAnnotations);
   const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
   const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
+
   const resetCamera = useViewer((s) => s.resetCamera);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
@@ -451,7 +451,7 @@ function App() {
           </div>
         </div>
       )}
-      <ToastNotification />
+      <ToastNotification url={effectiveModelUrl} />
       {isSplatModel ? (
         <SplatLoadProgress progress={splatProgress} />
       ) : (
