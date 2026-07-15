@@ -9,7 +9,6 @@ import {
   detectOrientationFromSamples,
   type SplatOrientationSamples,
 } from "../splatOrientation_utils";
-import SplatCentersWorker from "./splatCenters.worker?worker";
 
 // Same plain-function pattern as mkkellogSplat_utils.ts, for the same
 // reason - useCallback can't be called at module scope, so the actual
@@ -50,7 +49,10 @@ export function extractSparkSplatCentersAsync(
     const matrixElements = Array.from(splatMesh.matrixWorld.elements);
 
     // Spin up the worker
-    const worker = new SplatCentersWorker();
+    const worker = new Worker(
+      new URL("./splatCenters.worker.ts", import.meta.url),
+      { type: "module" },
+    );
 
     worker.onmessage = (e: MessageEvent<Float32Array>) => {
       resolve(e.data);
