@@ -16,57 +16,115 @@ import {
 
 /**
  * Extracts every splat's world-space center into a flat, interleaved xyz
- * Float32Array - the same shape buildSplatGraph/geodesicWorker.ts already
- * expect, and the same shape extractSparkSplatCenters's GaussianSplats3D
- * equivalent (fillSplatDataArrays) produced. Uses forEachSplat (the same
- * bulk-iteration method getBoundingBox() itself uses internally) rather
- * than looping packedSplats.getSplat(i) manually - not because the latter
- * wouldn't work, just consistent with how the library's own code does
- * full-scene iteration.
+ * Float32Array, fully off the main thread - both the per-splat unpack
+ * (unpackSplat, run inside the worker) and the matrix transform. See
+ * splatCenters.worker.ts for why the unpack itself needed to move, not
+ * just the transform: a trace showed the unpack loop contributing a
+ * ~670ms synchronous main-thread block right inside the onLoad chain,
+ * the actual cause of the "stuck at 100%, nothing renders" gap - the
+ * matrix transform alone (what an earlier version of this moved) is
+ * cheap arithmetic on an already-extracted array and was never the real
+ * cost.
  *
- * Local/object-space centers - matrixWorld is applied afterward, same
- * pattern as getBoundingBox()'s usage in handleSparkSplatLoad.
+ * The worker is a persistent, lazily-created singleton (module-level,
+ * not recreated per call) - spinning up a fresh Worker on every load
+ * means re-paying real worker/script instantiation overhead each time,
+ * similar in kind to the one-time worker/WASM cold-start cost Spark's
+ * own pipeline pays once per session (also found via trace analysis).
+ * Requests are matched to responses via requestId (same pattern
+ * geodesicWorker.ts already uses) rather than a single onmessage/onerror
+ * pair per call, since a persistent worker can have more than one
+ * request in flight if a user switches models again before the first
+ * one finishes.
  */
-/**
- * Asynchronously extracts splat centers off the main thread using a Web Worker.
- */
+export type SplatCenterBuffers = {
+  forState: Float32Array;
+  forClicks: Float32Array;
+};
+
+let sharedCentersWorker: Worker | null = null;
+const pendingCenterRequests = new Map<
+  number,
+  {
+    resolve: (centers: SplatCenterBuffers) => void;
+    reject: (err: unknown) => void;
+  }
+>();
+let nextCenterRequestId = 0;
+
+function getSplatCentersWorker(): Worker {
+  if (sharedCentersWorker) return sharedCentersWorker;
+
+  const worker = new Worker(
+    new URL("./splatCenters.worker.ts", import.meta.url),
+    { type: "module" },
+  );
+
+  worker.onmessage = (
+    e: MessageEvent<{
+      requestId: number;
+      centersForState: Float32Array;
+      centersForClicks: Float32Array;
+    }>,
+  ) => {
+    const { requestId, centersForState, centersForClicks } = e.data;
+    const pending = pendingCenterRequests.get(requestId);
+    if (!pending) return; // already settled/abandoned - safe to ignore
+    pendingCenterRequests.delete(requestId);
+    pending.resolve({ forState: centersForState, forClicks: centersForClicks });
+  };
+
+  worker.onerror = (err) => {
+    // A worker-level error isn't scoped to a single request - reject
+    // everything currently in flight rather than leave those promises
+    // pending forever.
+    for (const { reject } of pendingCenterRequests.values()) reject(err);
+    pendingCenterRequests.clear();
+  };
+
+  sharedCentersWorker = worker;
+  return worker;
+}
+
 export function extractSparkSplatCentersAsync(
   splatMesh: SplatMesh,
-): Promise<Float32Array> {
+): Promise<SplatCenterBuffers> {
   return new Promise((resolve, reject) => {
-    const numSplats = splatMesh.packedSplats?.numSplats ?? 0;
-    const centers = new Float32Array(numSplats * 3);
+    const packedSplats = splatMesh.packedSplats;
+    const numSplats = packedSplats?.numSplats ?? 0;
+    if (!packedSplats || numSplats === 0) {
+      resolve({
+        forState: new Float32Array(0),
+        forClicks: new Float32Array(0),
+      });
+      return;
+    }
 
-    let i = 0;
-    splatMesh.packedSplats?.forEachSplat((_index, center) => {
-      centers[i * 3] = center.x;
-      centers[i * 3 + 1] = center.y;
-      centers[i * 3 + 2] = center.z;
-      i++;
-    });
+    // A COPY of the packed array, not a transfer of the live one -
+    // transferring splatMesh's own packedArray would detach its
+    // underlying buffer out from under the actively-rendering splat,
+    // which may still need to read it later (Spark's own LOD/re-encoding
+    // paths, for instance). The copy is a fast, contiguous memory copy -
+    // not the per-splat decode work this whole change exists to move off
+    // the main thread, so it doesn't reintroduce a meaningful stall.
+    const packedArrayCopy = new Uint32Array(packedSplats.packedArray ?? []);
 
     splatMesh.updateMatrixWorld(true);
     const matrixElements = Array.from(splatMesh.matrixWorld.elements);
 
-    // Spin up the worker
-    const worker = new Worker(
-      new URL("./splatCenters.worker.ts", import.meta.url),
-      { type: "module" },
+    const requestId = nextCenterRequestId++;
+    pendingCenterRequests.set(requestId, { resolve, reject });
+
+    getSplatCentersWorker().postMessage(
+      {
+        requestId,
+        packedArray: packedArrayCopy,
+        numSplats,
+        splatEncoding: packedSplats.splatEncoding,
+        matrixElements,
+      },
+      [packedArrayCopy.buffer],
     );
-
-    worker.onmessage = (e: MessageEvent<Float32Array>) => {
-      resolve(e.data);
-      worker.terminate(); // Clean up thread resources
-    };
-
-    worker.onerror = (err) => {
-      reject(err);
-      worker.terminate();
-    };
-
-    // The second array transfers ownership of the underlying buffer
-    // ensuring the main thread doesn't lock up duplicating memory blocks.
-    worker.postMessage({ centers, matrixElements }, [centers.buffer]);
   });
 }
 
@@ -145,7 +203,22 @@ export type HandleSparkSplatLoadDeps = {
   setMarkerScale: (scale: number) => void;
   clearPoints: () => void;
   setLoadedSplatMesh: (mesh: SplatMesh | null) => void;
-  setSplatCenters: (centers: Float32Array | null) => void;
+  // Two independent buffers, not one shared reference - see
+  // splatCenters.worker.ts for why. forState feeds Measurement's prop
+  // (which safely transfers it away to the geodesic worker, since it's
+  // exclusively that effect's to consume); forClicks stays on the main
+  // thread indefinitely for repeat click-based normal estimation.
+  applySplatCenters: (
+    forState: Float32Array | null,
+    forClicks: Float32Array | null,
+  ) => void;
+  // Used only to detect staleness once the async extraction below
+  // resolves - by that point (a real async round-trip through a worker
+  // now, not just a same-tick deferral), splatRef.current reliably
+  // reflects whatever's actually loaded, unlike right at onLoad time
+  // itself (see readSplatTransform's comment in App.tsx for why that
+  // specific moment isn't reliable).
+  splatRef: RefObject<SplatMesh | null>;
 };
 
 export function handleSparkSplatLoad(
@@ -158,7 +231,8 @@ export function handleSparkSplatLoad(
     setMarkerScale,
     clearPoints,
     setLoadedSplatMesh,
-    setSplatCenters,
+    applySplatCenters,
+    splatRef,
   } = deps;
 
   if (!cameraControlsRef.current) return;
@@ -196,10 +270,18 @@ export function handleSparkSplatLoad(
   cameraControlsRef.current.saveState();
   setLoadedSplatMesh(splatMesh);
   extractSparkSplatCentersAsync(splatMesh)
-    .then((calculatedCenters) => {
-      setSplatCenters(calculatedCenters);
+    .then(({ forState, forClicks }) => {
+      // Guarded against staleness: if the user has already switched to a
+      // different model by the time the worker responds, splatRef.current
+      // will no longer be this splatMesh - writing splatCenters now would
+      // silently apply stale geodesic data to whatever's actually loaded
+      // (or overwrite the model-change reset entirely). Skip rather than
+      // trust that nothing changed during the round-trip.
+      if (splatRef.current !== splatMesh) return;
+      applySplatCenters(forState, forClicks);
+      console.log("here");
     })
-    .catch((error) => {
+    .catch((error: unknown) => {
       console.error("Failed to extract splat centers off-thread:", error);
     });
 }

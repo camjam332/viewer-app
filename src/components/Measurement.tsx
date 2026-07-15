@@ -165,19 +165,22 @@ export const Measurement = ({
     graphReadyRef.current = false;
     setDraped(null);
 
-    // Deliberately NOT transferring ownership of splatCenters.buffer here -
-    // the array is owned by App-level React state (shared, not a
-    // throwaway created just for this message), and a transfer would
-    // detach/empty it out from under that state. A structured-clone copy
-    // costs a bit more, but for a few hundred thousand splats (a few MB)
-    // that's negligible next to the correctness risk.
+    // Safe to transfer now - splatCenters here is a buffer produced
+    // specifically for this effect's use (see splatCenters.worker.ts and
+    // App.tsx's applySplatCenters), independent from the separate copy
+    // splatCentersRef holds for click-based normal estimation. This used
+    // to be a genuine, measurable main-thread structured-clone cost -
+    // confirmed via the "splat renders, orbits briefly, then the main
+    // thread pauses" symptom this was root-caused from, since this
+    // effect fires exactly when the async center-extraction resolves,
+    // sometime after the splat is already visible and interactive.
     const message: GeodesicWorkerRequest = {
       type: "buildSplatGraph",
       requestId,
       centers: splatCenters,
       k: 8,
     };
-    worker.postMessage(message);
+    worker.postMessage(message, [splatCenters.buffer]);
   }, [splatCenters]);
 
   // Recompute the geodesic path whenever the measurement points (or the

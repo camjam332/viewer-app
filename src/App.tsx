@@ -56,6 +56,17 @@ import {
   handleSparkSplatClick,
 } from "./utils/spark_Splat/utils";
 
+// Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
+// written directly in JSX creates a brand-new array on every single App
+// render. Confirmed via trace as a real cause of a "Cascading Update"
+// loop inside GizmoHelper/GizmoViewport - the same bug class already
+// root-caused twice this session for onLoad/onError/onSplatClick, just
+// surfacing through a different component this time. Stable references
+// here mean drei's internals see the "same" props across renders, same
+// as they always should have.
+const GIZMO_MARGIN: [number, number] = [80, 80];
+const GIZMO_AXIS_COLORS: [string, string, string] = ["red", "green", "blue"];
+
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
   focused: Annotation | null;
@@ -175,7 +186,14 @@ function App() {
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
     null,
   );
-  // const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
+  const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
+  // Mirrors splatCenters state - exists specifically so handleSplatClick
+  // can read the current value at call time without needing splatCenters
+  // in its own useCallback dependency array (a ref's identity is stable,
+  // so including it wouldn't even reliably trigger recreation on mutation
+  // anyway - state remains the correct mechanism for anything that needs
+  // to actually react to the value changing, like Measurement's
+  // graph-rebuild effect below).
   const splatCentersRef = useRef<Float32Array | null>(null);
   const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
     position: [number, number, number];
@@ -183,6 +201,14 @@ function App() {
   } | null>(null);
   const [splatProgress, setSplatProgress] =
     useState<SplatLoadProgressValue | null>(null);
+  // Tracks the gap between the splat becoming visible and the
+  // main-thread work setSplatCenters triggers actually finishing (a
+  // "Cascading Update" confirmed via trace analysis, currently still
+  // unresolved despite fixing GizmoHelper's unstable array props - this
+  // doesn't make that work any faster, it's a detection mechanism so the
+  // UI can at least show something during it instead of silently
+  // freezing with no explanation).
+  const [isPreparingSplatData, setIsPreparingSplatData] = useState(false);
 
   // Stable (empty deps) - required, not a style choice: this gets passed
   // as SparkSplat's onProgress prop, which sits in that component's
@@ -273,6 +299,7 @@ function App() {
   const handleSplatError = useCallback((err: unknown) => {
     setErrorMessage(err instanceof Error ? err.message : String(err));
     setSplatProgress(null);
+    setIsPreparingSplatData(false);
   }, []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -294,10 +321,11 @@ function App() {
     setMeshDeformation(false);
     setErrorMessage(null);
     setLoadedSplatMesh(null);
-    //setSplatCenters(null);
+    setSplatCenters(null);
     splatCentersRef.current = null;
     setSplatTransformDisplay(null);
     setSplatProgress(null);
+    setIsPreparingSplatData(false);
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -328,9 +356,32 @@ function App() {
         setMarkerScale,
         clearPoints,
         setLoadedSplatMesh,
-        setSplatCenters: (centers) => {
-          splatCentersRef.current = centers;
+        applySplatCenters: (forState, forClicks) => {
+          splatCentersRef.current = forClicks;
+          setIsPreparingSplatData(true);
+
+          // Yield one frame before triggering the actual update - without
+          // this, setSplatCenters below could get batched into the very
+          // same blocking render pass as setIsPreparingSplatData itself,
+          // meaning the "preparing" indicator would never get a chance
+          // to actually paint before the freeze begins.
+          requestAnimationFrame(() => {
+            setSplatCenters(forState);
+
+            // Queued behind whatever setSplatCenters ends up triggering,
+            // however long that turns out to be - a callback scheduled
+            // here genuinely cannot run until the main thread is free
+            // again, since JS is single-threaded and this is queued
+            // behind the current blocking work. That's the actual
+            // detection mechanism: not a timer or a guess, just relying
+            // on the browser's own scheduling guarantee. This doesn't
+            // make the underlying cascade any faster.
+            requestAnimationFrame(() => {
+              setIsPreparingSplatData(false);
+            });
+          });
         },
+        splatRef,
       });
       // Uses the splatMesh parameter directly rather than splatRef.current -
       // see readSplatTransform's comment for why the ref isn't reliable yet
@@ -352,7 +403,7 @@ function App() {
         splatCentersRef,
       });
     },
-    [tool, addPoint, addAnnotation, effectiveModelUrl, splatCentersRef.current],
+    [tool, addPoint, addAnnotation, effectiveModelUrl],
   );
 
   useEffect(() => {
@@ -407,7 +458,12 @@ function App() {
         </div>
       )}
       {isSplatModel ? (
-        <SplatLoadProgress progress={splatProgress} />
+        <SplatLoadProgress
+          progress={splatProgress}
+          indeterminateMessage={
+            isPreparingSplatData ? "Preparing measurement data…" : null
+          }
+        />
       ) : (
         <Loader />
       )}
@@ -433,12 +489,9 @@ function App() {
         <Stats />
         <GizmoHelper
           alignment="bottom-right" // widget alignment within scene
-          margin={[80, 80]} // widget margins (X, Y)
+          margin={GIZMO_MARGIN} // widget margins (X, Y)
         >
-          <GizmoViewport
-            axisColors={["red", "green", "blue"]}
-            labelColor="white"
-          />
+          <GizmoViewport axisColors={GIZMO_AXIS_COLORS} labelColor="white" />
         </GizmoHelper>
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
@@ -494,7 +547,7 @@ function App() {
             <Measurement
               modelRef={modelRef}
               modelUrl={effectiveModelUrl}
-              splatCenters={splatCentersRef.current}
+              splatCenters={splatCenters}
             />
             {!isSplatModel && (
               <>
