@@ -182,6 +182,15 @@ function App() {
   const activeObjectRef = isSplatModel ? splatRef : modelRef;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
+  // Increments once per newly-loaded mesh, via Model's onReady - the
+  // signal Measurement.tsx's mesh graph effect actually needs, since
+  // modelUrl changes before Suspense resolves and modelRef.current is
+  // real. Without this, Measurement had no way to know when to retry
+  // after its first (too-early) attempt.
+  const [meshReadyToken, setMeshReadyToken] = useState(0);
+  const handleMeshReady = useCallback(() => {
+    setMeshReadyToken((t) => t + 1);
+  }, []);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
@@ -517,6 +526,7 @@ function App() {
                 ref={modelRef}
                 url={effectiveModelUrl}
                 onField={handleField}
+                onReady={handleMeshReady}
               />
             )}
             {showTransformControls && effectiveModelUrl && (
@@ -537,6 +547,7 @@ function App() {
             <Measurement
               modelRef={modelRef}
               modelUrl={effectiveModelUrl}
+              meshReadyToken={meshReadyToken}
               splatCenters={splatCenters}
             />
             {!isSplatModel && (

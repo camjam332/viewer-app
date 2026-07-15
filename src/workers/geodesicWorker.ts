@@ -73,6 +73,7 @@ function resetGraphState() {
 
 ctx.onmessage = (event: MessageEvent<GeodesicWorkerRequest>) => {
   const data = event.data;
+  console.log(data.type)
   if (data.type === "buildGraph") {
     try {
       const merged = mergeGeometries(data.meshes.map(toGeometry));

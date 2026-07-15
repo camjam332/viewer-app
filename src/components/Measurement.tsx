@@ -19,6 +19,13 @@ import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
 type MeasurementProps = {
   modelRef: RefObject<Object3D | null>;
   modelUrl: string | null;
+  // Increments once per newly-loaded mesh (see Model.tsx's onReady) -
+  // needed alongside modelUrl, not instead of it: modelUrl changes at
+  // selection time, before modelRef is actually attached (Model is
+  // Suspense-based), so an effect keyed on modelUrl alone can run before
+  // there's anything real to read from the ref, with nothing left to
+  // trigger it a second time once the mesh actually finishes loading.
+  meshReadyToken?: number;
   /** Present only once a splat scene has finished loading; null in mesh mode. */
   /**
    * Flat, world-space, interleaved xyz splat centers - already extracted
@@ -37,6 +44,7 @@ type DrapedResult = { points: Vector3[]; distance: number };
 export const Measurement = ({
   modelRef,
   modelUrl,
+  meshReadyToken,
   splatCenters,
 }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
@@ -109,22 +117,47 @@ export const Measurement = ({
     };
   }, [createGeodesicWorker]);
 
-  // Rebuild the MESH graph only when the model itself changes. Depends on
-  // modelUrl rather than modelRef.current: mutating a ref doesn't trigger a
-  // re-render, so an effect keyed on ref.current only re-runs when some
-  // *other* state change happens to cause a re-render around the same
-  // time - true here today (clearPoints() on load coincides), but that's
-  // incidental, not guaranteed, and could silently rebuild the graph
-  // against a stale or wrong mesh if that coincidence ever breaks.
+  // Rebuild the MESH graph when the model changes OR when a mesh finishes
+  // loading. Depends on BOTH modelUrl and meshReadyToken, not modelUrl
+  // alone - modelUrl changes at selection time, immediately, but
+  // modelRef.current only becomes valid later, once Model's Suspense
+  // boundary actually resolves and its <primitive ref={ref}> mounts.
+  // An effect keyed on modelUrl alone fires too early (modelRef.current
+  // is still null or stale), and nothing was left to trigger it again
+  // once the ref actually caught up - this was a real, confirmed bug,
+  // not a hypothetical: switching from a splat to a mesh (or between two
+  // meshes) while depending on modelUrl alone meant the mesh graph build
+  // simply never started, silently. meshReadyToken (see Model.tsx's
+  // onReady) is what closes that gap - it fires unconditionally once per
+  // newly-loaded mesh, specifically once the ref is real.
   //
-  // In splat mode modelRef.current is always null (Model never mounts),
-  // so this naturally no-ops and defers to the splat-graph effect below.
+  // In splat mode modelRef.current is always null (Model never mounts,
+  // meshReadyToken never increments), so this naturally no-ops and
+  // defers to the splat-graph effect below.
   useEffect(() => {
-    const worker = workerRef.current;
-    if (!worker) return;
+    // Same reasoning as the splat graph effect below: buildGraph (mesh
+    // welding + adjacency) runs as one synchronous call inside the
+    // worker's onmessage handler, so a stale build from a previously
+    // selected mesh needs the thread killed outright to actually stop -
+    // the requestId check further down only discards its eventual
+    // result, it doesn't reclaim the CPU time already being spent on it.
+    // Terminating unconditionally here (not just when a mesh is
+    // successfully found) also means buildingGraph reliably gets reset
+    // to false on every transition, not just the successful ones -
+    // buildingGraph is shared state between this effect and the splat
+    // one, so a stuck-true here could just as easily break the splat
+    // path's toast as the reverse.
+    if (workerRef.current) {
+      workerRef.current.terminate();
+    }
+    const freshWorker = createGeodesicWorker();
+    workerRef.current = freshWorker;
+
+    graphReadyRef.current = false;
+    setDraped(null);
+    setBuildingGraph(false);
+
     if (!modelRef.current) {
-      graphReadyRef.current = false;
-      setDraped(null);
       return;
     }
 
@@ -143,15 +176,11 @@ export const Measurement = ({
       }
     });
     if (meshes.length === 0) {
-      graphReadyRef.current = false;
-      setDraped(null);
       return;
     }
 
     const requestId = ++nextRequestId.current;
     graphRequestIdRef.current = requestId;
-    graphReadyRef.current = false;
-    setDraped(null);
 
     const transfer: Transferable[] = [];
     meshes.forEach(({ position, index }) => {
@@ -163,9 +192,30 @@ export const Measurement = ({
       requestId,
       meshes,
     };
-    setBuildingGraph(true);
-    worker.postMessage(message, transfer);
-  }, [modelUrl]);
+
+    // Deferred one frame for the same reason as the splat graph effect:
+    // calling setBuildingGraph(true) synchronously right after the false
+    // above would let React 18's batching collapse them into a single
+    // "no net change" update whenever buildingGraph was already true
+    // entering this effect (e.g. a splat's graph was still building when
+    // the user switched to a mesh) - the toast would silently not
+    // re-fire, same root cause as the splat-side bug, just reachable
+    // from the mesh side too since they share the same flag.
+    //
+    // Cancelled on cleanup, not left to fire unconditionally - without
+    // this, an effect re-run (a rapid model switch, or React StrictMode's
+    // deliberate double-invoke on every mount in dev) could leave this
+    // callback pending and have it fire later, calling
+    // setBuildingGraph(true) from an already-stale run's closure with no
+    // relation to whatever's actually selected by the time it runs. That
+    // orphaned call is exactly what could show the toast even when the
+    // CURRENT model's own build was never actually reached.
+    const rafId = requestAnimationFrame(() => {
+      setBuildingGraph(true);
+      freshWorker.postMessage(message, transfer);
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [modelUrl, meshReadyToken, createGeodesicWorker]);
 
   // Rebuild the SPLAT graph whenever a new splatCenters array arrives -
   // keyed on the array's own identity, which changes exactly once per
@@ -235,10 +285,18 @@ export const Measurement = ({
     // A-still-building, B-just-arrived case this whole fix is for).
     // Yielding one frame first forces the false to commit as its own,
     // separate, observable render before the true that follows it.
-    requestAnimationFrame(() => {
+    //
+    // Cancelled on cleanup for the same reason as the mesh graph effect:
+    // an uncancelled callback left pending across an effect re-run (a
+    // rapid model switch, or StrictMode's double-invoke on mount) can
+    // fire later and call setBuildingGraph(true) from an already-stale
+    // closure, showing the toast for a build that has nothing to do with
+    // whatever's actually selected by then.
+    const rafId = requestAnimationFrame(() => {
       setBuildingGraph(true);
       freshWorker.postMessage(message, [splatCenters.buffer]);
     });
+    return () => cancelAnimationFrame(rafId);
   }, [splatCenters, createGeodesicWorker]);
 
   // Recompute the geodesic path whenever the measurement points (or the

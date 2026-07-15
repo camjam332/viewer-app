@@ -7,7 +7,6 @@ type ToastParams = {
 };
 
 export const ToastNotification = ({ url }: ToastParams) => {
-  let prevUrl = "";
   const buildingGraph = useMeasurement((s) => s.buildingGraph);
   const [showToast, setShowToast] = useState(false);
 

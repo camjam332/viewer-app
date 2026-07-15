@@ -16,7 +16,12 @@ import {
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
 import { useTextureEdit } from "../state/textureEditState";
-import { MeshBVH, acceleratedRaycast, computeBoundsTree, disposeBoundsTree } from "three-mesh-bvh";
+import {
+  MeshBVH,
+  acceleratedRaycast,
+  computeBoundsTree,
+  disposeBoundsTree,
+} from "three-mesh-bvh";
 import { mergeGeometries } from "three/examples/jsm/utils/BufferGeometryUtils.js";
 import {
   beginPaintSession,
@@ -43,6 +48,15 @@ type ModelParams = {
   ref: Ref<Group> | null;
   url: string;
   onField: (f: ModelFieldInfo) => void;
+  // Fires once per newly-loaded model, after the ref is genuinely
+  // attached - Measurement.tsx's mesh graph effect needs this to know
+  // when modelRef.current has actually become valid. modelUrl itself
+  // changes earlier, at selection time, before Suspense has resolved
+  // and before <primitive ref={ref}> below has actually mounted - an
+  // effect keyed on modelUrl alone would run too early and never get a
+  // second chance to see the ref once it's real. Optional since not
+  // every caller of Model needs to know this.
+  onReady?: () => void;
 };
 
 export type ModelFieldInfo = {
@@ -59,7 +73,7 @@ const FADE_IN_SECONDS = 1.0;
 // different UV island rather than a continuation of the same stroke.
 const MAX_STROKE_JUMP_RATIO = 0.1;
 
-export const Model = ({ ref, url, onField }: ModelParams) => {
+export const Model = ({ ref, url, onField, onReady }: ModelParams) => {
   const { scene } = useGLTF(url);
   const addPoint = useMeasurement((s) => s.addPoint);
   const addAnnotation = useViewer((s) => s.addAnnotation);
@@ -124,6 +138,15 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
     const groundOffset = -box.min.y;
     cloned.position.y += groundOffset;
   }, [cloned]);
+
+  // Fires after this render has committed, by which point <primitive
+  // ref={ref}> below has actually mounted - unlike modelUrl (which
+  // changes at selection time, before Suspense resolves), this is a
+  // reliable "the ref is genuinely valid now" signal for callers that
+  // need to react to that specifically, not just to url changing.
+  useEffect(() => {
+    onReady?.();
+  }, [cloned, onReady]);
 
   useEffect(() => {
     if (!showAero) return;
@@ -235,9 +258,18 @@ export const Model = ({ ref, url, onField }: ModelParams) => {
       .fromBufferAttribute(posAttr, face.c)
       .applyMatrix4(object.matrixWorld);
 
-    const uv0 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.a);
-    const uv1 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.b);
-    const uv2 = new Vector2().fromBufferAttribute(uvAttr as BufferAttribute, face.c);
+    const uv0 = new Vector2().fromBufferAttribute(
+      uvAttr as BufferAttribute,
+      face.a,
+    );
+    const uv1 = new Vector2().fromBufferAttribute(
+      uvAttr as BufferAttribute,
+      face.b,
+    );
+    const uv2 = new Vector2().fromBufferAttribute(
+      uvAttr as BufferAttribute,
+      face.c,
+    );
 
     const e1 = p1.clone().sub(p0);
     const e2 = p2.clone().sub(p0);
