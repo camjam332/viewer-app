@@ -9,6 +9,7 @@ import {
   useGLTF,
   GizmoHelper,
   GizmoViewport,
+  Stats,
 } from "@react-three/drei";
 import {
   Suspense,
@@ -27,6 +28,10 @@ import { Measurement } from "./components/Measurement";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import { SplatTransformPanel } from "./ui/SplatTransformPanel";
+import {
+  SplatLoadProgress,
+  type SplatLoadProgressValue,
+} from "./ui/splat/SplatLoadProgress";
 import type { Annotation } from "./state/state";
 import { Box3, Mesh, MathUtils, type Group } from "three";
 import {
@@ -175,6 +180,21 @@ function App() {
     position: [number, number, number];
     rotationDeg: [number, number, number];
   } | null>(null);
+  const [splatProgress, setSplatProgress] =
+    useState<SplatLoadProgressValue | null>(null);
+
+  // Stable (empty deps) - required, not a style choice: this gets passed
+  // as SparkSplat's onProgress prop, which sits in that component's
+  // loading effect's dependency array. An unstable reference here would
+  // tear down and restart the load on every App render, the same bug
+  // class already root-caused twice this session for onLoad/onClick.
+  const handleSplatProgress = useCallback((event: ProgressEvent) => {
+    setSplatProgress({
+      loaded: event.loaded,
+      total: event.total,
+      lengthComputable: event.lengthComputable,
+    });
+  }, []);
 
   // Reads the live transform straight off the Object3D rather than any
   // React state - TransformControls' gizmo mutates position/rotation
@@ -251,6 +271,7 @@ function App() {
   // earlier this session for onLoad and onSplatClick.
   const handleSplatError = useCallback((err: unknown) => {
     setErrorMessage(err instanceof Error ? err.message : String(err));
+    setSplatProgress(null);
   }, []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -274,6 +295,7 @@ function App() {
     setLoadedSplatMesh(null);
     setSplatCenters(null);
     setSplatTransformDisplay(null);
+    setSplatProgress(null);
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -310,6 +332,7 @@ function App() {
       // see readSplatTransform's comment for why the ref isn't reliable yet
       // at this exact point.
       readSplatTransform(splatMesh);
+      setSplatProgress(null);
     },
     [selectedModel, setMarkerScale, clearPoints, readSplatTransform],
   );
@@ -379,6 +402,11 @@ function App() {
           </div>
         </div>
       )}
+      {isSplatModel ? (
+        <SplatLoadProgress progress={splatProgress} />
+      ) : (
+        <Loader />
+      )}
       <Sidebar />
       <Canvas
         style={{
@@ -398,7 +426,7 @@ function App() {
         frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
-        {/* <Stats /> */}
+        <Stats />
         <GizmoHelper
           alignment="bottom-right" // widget alignment within scene
           margin={[80, 80]} // widget margins (X, Y)
@@ -420,6 +448,7 @@ function App() {
               url={effectiveModelUrl}
               onLoad={handleSplatLoad}
               onError={handleSplatError}
+              onProgress={handleSplatProgress}
               onClick={handleSplatClick}
             />
           </>
@@ -490,7 +519,6 @@ function App() {
         )}
         <Grid infiniteGrid fadeDistance={50} />
       </Canvas>
-      <Loader />
     </>
   );
 }

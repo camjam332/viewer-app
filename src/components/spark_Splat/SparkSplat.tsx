@@ -14,6 +14,14 @@ type SparkSplatParams = {
   // JS cost staying under 1ms/frame). Defaults on; pass false to compare
   // against full-detail rendering.
   lod?: boolean | "quality";
+  // Fires as bytes download/decode - standard DOM ProgressEvent
+  // (.loaded/.total/.lengthComputable), sourced from Spark's own worker
+  // reporting real byte counts back via postMessage. Included in the
+  // loading effect's dependency array below, same as onLoad/onError - the
+  // caller needs to keep this stable (useCallback) or it'll tear down and
+  // restart the load on every re-render, the exact bug class already
+  // root-caused twice this session for onLoad and onSplatClick.
+  onProgress?: (event: ProgressEvent) => void;
   // SplatMesh implements a real, standards-compliant Object3D.raycast()
   // (confirmed from source - pushes {distance, point, object} into the
   // intersects array like any normal mesh), so R3F's own pointer event
@@ -44,6 +52,7 @@ export const SparkSplat = ({
   url,
   onLoad,
   onError,
+  onProgress,
   lod = true,
   onClick,
   onPointerDown,
@@ -71,6 +80,7 @@ export const SparkSplat = ({
       url,
       lod,
       nonLod: lod ? true : undefined,
+      onProgress,
     });
 
     instance.initialized
@@ -88,9 +98,10 @@ export const SparkSplat = ({
       cancelled = true;
       instance.dispose();
     };
-  }, [url, lod, onLoad, onError]);
+  }, [url, lod, onLoad, onError, onProgress]);
 
   if (!splat) return null;
+
   return (
     <primitive
       ref={ref}

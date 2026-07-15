@@ -28,7 +28,9 @@ import {
  * Local/object-space centers - matrixWorld is applied afterward, same
  * pattern as getBoundingBox()'s usage in handleSparkSplatLoad.
  */
-export function extractSparkSplatCenters(splatMesh: SplatMesh): Float32Array {
+export function extractSparkSplatCenters(
+  splatMesh: SplatMesh,
+): Float32Array<ArrayBufferLike> {
   const numSplats = splatMesh.packedSplats?.numSplats ?? 0;
   const centers = new Float32Array(numSplats * 3);
 
@@ -171,7 +173,7 @@ export function handleSparkSplatLoad(
 
   cameraControlsRef.current.saveState();
   setLoadedSplatMesh(splatMesh);
-  setSplatCenters(extractSparkSplatCenters(splatMesh));
+  // setSplatCenters(extractSparkSplatCenters(splatMesh));
 }
 
 /**
@@ -266,23 +268,25 @@ export function handleSparkSplatClick(
     deps;
 
   if (tool === "measure") {
-    addPoint(event.point.clone());
+    const point = event.point.clone();
+    addPoint(point);
     return;
   }
 
   if (tool === "annotate") {
     let normal: [number, number, number] = [0, 0, 1];
+    const point = event.point.clone();
     if (splatCenters && splatCenters.length > 0) {
       const n = estimateSparkSplatNormal(
         splatMesh,
         splatCenters,
-        event.point,
+        point,
         event.camera.position,
       );
       normal = [n.x, n.y, n.z];
     }
     addAnnotation(
-      [event.point.x, event.point.y, event.point.z],
+      [point.x, point.y, point.z],
       normal,
       effectiveModelUrl ?? undefined,
     );
