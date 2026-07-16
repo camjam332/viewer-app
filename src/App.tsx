@@ -49,11 +49,15 @@ import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SparkScene } from "./components/spark_Splat/SparkScene";
 import { SparkSplat } from "./components/spark_Splat/SparkSplat";
-import type { SplatMesh } from "@sparkjsdev/spark";
+import type { PackedSplats, SplatMesh } from "@sparkjsdev/spark";
 import {
   handleSparkSplatLoad,
   handleSparkSplatClick,
+  analyzeSparkSplatFloaters,
+  applySparkFloaterThreshold,
+  type FloaterAnalysis,
 } from "./utils/spark_Splat/utils";
+import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
 import { ToastNotification } from "./ui/ToastNotification";
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
@@ -66,6 +70,11 @@ import { ToastNotification } from "./ui/ToastNotification";
 // as they always should have.
 const GIZMO_MARGIN: [number, number] = [80, 80];
 const GIZMO_AXIS_COLORS: [string, string, string] = ["red", "green", "blue"];
+// A moderate starting point (score 1.0 = typical local density, higher
+// is sparser) - untested against a real, noisy capture, so treat this as
+// a reasonable first guess rather than a validated default. Likely needs
+// tuning once tried against real data.
+const DEFAULT_FLOATER_THRESHOLD = 3.0;
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -205,6 +214,21 @@ function App() {
   // to actually react to the value changing, like Measurement's
   // graph-rebuild effect below).
   const splatCentersRef = useRef<Float32Array | null>(null);
+
+  // Floater cleanup - analysis is opt-in (explicit button, not run on
+  // every load) since it's a real, non-trivial worker pass; the
+  // threshold itself is meant to feel live once analysis is done, hence
+  // the separate DEFAULT_FLOATER_THRESHOLD constant rather than deriving
+  // one from the data - a data-derived default would need the analysis
+  // to already be done to compute it, which defeats "opt-in".
+  const [floaterAnalysis, setFloaterAnalysis] =
+    useState<FloaterAnalysis | null>(null);
+  const [isAnalyzingFloaters, setIsAnalyzingFloaters] = useState(false);
+  const [floaterThreshold, setFloaterThreshold] = useState(
+    DEFAULT_FLOATER_THRESHOLD,
+  );
+  const [hiddenFloaterCount, setHiddenFloaterCount] = useState(0);
+
   const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
     position: [number, number, number];
     rotationDeg: [number, number, number];
@@ -331,6 +355,10 @@ function App() {
     setLoadedSplatMesh(null);
     setSplatCenters(null);
     splatCentersRef.current = null;
+    setFloaterAnalysis(null);
+    setIsAnalyzingFloaters(false);
+    setFloaterThreshold(DEFAULT_FLOATER_THRESHOLD);
+    setHiddenFloaterCount(0);
     setSplatTransformDisplay(null);
     setSplatProgress(null);
   }, [effectiveModelUrl]);
@@ -409,6 +437,49 @@ function App() {
     [tool, addPoint, addAnnotation, effectiveModelUrl],
   );
 
+  // Reuses splatCenters (already extracted for the geodesic feature)
+  // rather than re-decoding centers from scratch - see
+  // analyzeSparkSplatFloaters's own comment for why. Requires splatCenters
+  // to already be populated, which is why the panel gates its "Analyze"
+  // button on that rather than just on a splat being loaded at all.
+  const handleAnalyzeFloaters = useCallback(async () => {
+    if (!splatRef.current || !splatCenters || splatCenters.length === 0) return;
+    const targetSplat = splatRef.current;
+    setIsAnalyzingFloaters(true);
+    try {
+      const result = await analyzeSparkSplatFloaters(targetSplat, splatCenters);
+      // Staleness guard, same reasoning as handleSparkSplatLoad's - if
+      // the user switched models while this was running, applying the
+      // result now would silently corrupt whatever's actually loaded.
+      if (splatRef.current !== targetSplat) return;
+      setFloaterAnalysis(result);
+      const hidden = applySparkFloaterThreshold(
+        targetSplat,
+        result,
+        floaterThreshold,
+      );
+      setHiddenFloaterCount(hidden);
+    } catch (error) {
+      console.error("Floater analysis failed:", error);
+    } finally {
+      setIsAnalyzingFloaters(false);
+    }
+  }, [splatCenters, floaterThreshold]);
+
+  const handleFloaterThresholdChange = useCallback(
+    (threshold: number) => {
+      setFloaterThreshold(threshold);
+      if (!splatRef.current || !floaterAnalysis) return;
+      const hidden = applySparkFloaterThreshold(
+        splatRef.current,
+        floaterAnalysis,
+        threshold,
+      );
+      setHiddenFloaterCount(hidden);
+    },
+    [floaterAnalysis],
+  );
+
   useEffect(() => {
     pruneUploadedAnnotations();
   }, [pruneUploadedAnnotations]);
@@ -443,6 +514,17 @@ function App() {
             rotationDeg={splatTransformDisplay.rotationDeg}
             onPositionChange={handleSplatPositionEdit}
             onRotationChange={handleSplatRotationEdit}
+          />
+        )}
+        {isSplatModel && splatCenters && splatCenters.length > 0 && (
+          <FloaterCleanupPanel
+            isAnalyzing={isAnalyzingFloaters}
+            analysisReady={floaterAnalysis !== null}
+            hiddenCount={hiddenFloaterCount}
+            totalCount={floaterAnalysis?.scores.length ?? 0}
+            threshold={floaterThreshold}
+            onAnalyze={handleAnalyzeFloaters}
+            onThresholdChange={handleFloaterThresholdChange}
           />
         )}
       </div>

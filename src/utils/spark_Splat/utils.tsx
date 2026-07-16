@@ -401,3 +401,162 @@ export function handleSparkSplatClick(
     );
   }
 }
+
+// ---------------------------------------------------------------------
+// Floater cleanup
+// ---------------------------------------------------------------------
+
+export type FloaterAnalysis = {
+  scores: Float32Array;
+  opacities: Float32Array;
+};
+
+// Persistent, lazily-created singleton, same reasoning as the splat
+// centers worker: analysis is triggered explicitly by the user (not on
+// every load), but a fresh Worker per click would still mean re-paying
+// real script/instantiation overhead each time.
+let sharedFloaterWorker: Worker | null = null;
+const pendingFloaterRequests = new Map<
+  number,
+  { resolve: (result: FloaterAnalysis) => void; reject: (err: unknown) => void }
+>();
+let nextFloaterRequestId = 0;
+
+function getFloaterWorker(): Worker {
+  if (sharedFloaterWorker) return sharedFloaterWorker;
+
+  const worker = new Worker(
+    new URL("./floaterDetection.worker.ts", import.meta.url),
+    { type: "module" },
+  );
+
+  worker.onmessage = (
+    e: MessageEvent<{
+      requestId: number;
+      scores: Float32Array;
+      opacities: Float32Array;
+    }>,
+  ) => {
+    const { requestId, scores, opacities } = e.data;
+    const pending = pendingFloaterRequests.get(requestId);
+    if (!pending) return; // already settled/abandoned - safe to ignore
+    pendingFloaterRequests.delete(requestId);
+    pending.resolve({ scores, opacities });
+  };
+
+  worker.onerror = (err) => {
+    for (const { reject } of pendingFloaterRequests.values()) reject(err);
+    pendingFloaterRequests.clear();
+  };
+
+  sharedFloaterWorker = worker;
+  return worker;
+}
+
+/**
+ * Runs the one-time, expensive k-NN density analysis for a loaded splat.
+ * Reuses the already-extracted world-space centers (from
+ * extractSparkSplatCentersAsync, already sitting in App.tsx state for
+ * the geodesic feature) rather than re-decoding them - only opacity
+ * needs a fresh decode pass here.
+ */
+export function analyzeSparkSplatFloaters(
+  splatMesh: SplatMesh,
+  centers: Float32Array,
+  k = 8,
+): Promise<FloaterAnalysis> {
+  // When LOD is active, Spark's actual GPU render path swaps to
+  // packedSplats.lodSplats - a separate PackedSplats instance built by
+  // the "Tiny LoD" algorithm, with a different splat count entirely
+  // (confirmed: 270,491 became 325,942 for one real capture during
+  // earlier performance work). There's no clean index mapping from the
+  // base array to that restructured one, so editing packedSplats (what
+  // applySparkFloaterThreshold does) has genuinely zero visual effect
+  // while LOD rendering is active - confirmed directly from
+  // SplatMesh.ts's per-frame update path. Disabling LOD here is a real,
+  // known tradeoff (the antialias/LOD work earlier this session measured
+  // a 46->64fps improvement from having it on) - accepted specifically
+  // at the moment floater cleanup is opted into, not silently for every
+  // splat regardless of whether this feature is ever used.
+  splatMesh.enableLod = false;
+
+  return new Promise((resolve, reject) => {
+    const packedSplats = splatMesh.packedSplats;
+    const numSplats = packedSplats?.numSplats ?? 0;
+    if (!packedSplats || numSplats === 0 || centers.length === 0) {
+      resolve({ scores: new Float32Array(0), opacities: new Float32Array(0) });
+      return;
+    }
+
+    // Copies, not transfers - centers is still needed elsewhere (the
+    // click-based normal estimation ref, and this same array is reused
+    // rather than owned exclusively by this call), and packedArray is
+    // the live splat's own data, which must not be detached out from
+    // under the actively-rendering mesh.
+    const centersCopy = new Float32Array(centers);
+    const packedArrayCopy = new Uint32Array(packedSplats.packedArray ?? []);
+
+    const requestId = nextFloaterRequestId++;
+    pendingFloaterRequests.set(requestId, { resolve, reject });
+
+    getFloaterWorker().postMessage(
+      {
+        requestId,
+        centers: centersCopy,
+        packedArray: packedArrayCopy,
+        numSplats,
+        splatEncoding: packedSplats.splatEncoding,
+        k,
+      },
+      [centersCopy.buffer, packedArrayCopy.buffer],
+    );
+  });
+}
+
+/**
+ * Applies a threshold to already-computed floater scores - the cheap,
+ * instant half of the feature, meant to run on every slider tick.
+ * Splats scoring above the threshold get opacity 0 (hidden); everything
+ * else is restored to its real, original opacity. Iterates every splat
+ * unconditionally rather than tracking a delta from the previous
+ * threshold - simpler to reason about, and fine for a debounced,
+ * user-driven slider rather than something firing every frame. Returns
+ * the hidden count for UI feedback ("1,204 splats hidden").
+ *
+ * Rewrites the full splat entry via setSplat (opacity can't be set in
+ * isolation), but only ever touches opacity - center/scale/rotation/
+ * color are read back from getSplat() itself, never cached separately,
+ * since nothing else in this feature ever modifies them.
+ */
+export function applySparkFloaterThreshold(
+  splatMesh: SplatMesh,
+  analysis: FloaterAnalysis,
+  threshold: number,
+): number {
+  const packedSplats = splatMesh.packedSplats;
+  if (!packedSplats) return 0;
+
+  const { scores, opacities } = analysis;
+  let hiddenCount = 0;
+
+  for (let i = 0; i < scores.length; i++) {
+    const shouldHide = scores[i] > threshold;
+    if (shouldHide) hiddenCount++;
+
+    const current = packedSplats.getSplat(i);
+    const targetOpacity = shouldHide ? 0 : opacities[i];
+    if (current.opacity === targetOpacity) continue; // no-op, skip the write
+
+    packedSplats.setSplat(
+      i,
+      current.center,
+      current.scales,
+      current.quaternion,
+      targetOpacity,
+      current.color,
+    );
+  }
+  packedSplats.needsUpdate = true;
+  splatMesh.updateGenerator();
+  return hiddenCount;
+}

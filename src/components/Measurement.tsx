@@ -269,10 +269,25 @@ export const Measurement = ({
     // thread pauses" symptom this was root-caused from, since this
     // effect fires exactly when the async center-extraction resolves,
     // sometime after the splat is already visible and interactive.
+    //
+    // Copies splatCenters rather than posting it directly, so the
+    // buffer that actually gets transferred (and detached) belongs to
+    // THIS message alone - splatCenters itself is shared React state
+    // (also read by App.tsx's floater cleanup feature), not something
+    // exclusively owned by this effect. Transferring the shared
+    // reference directly - which this used to do - detaches its buffer
+    // out from under every other consumer of that same state the moment
+    // this effect runs, permanently, for the rest of that splat's
+    // lifetime: a real, confirmed bug (empty-looking Float32Array with
+    // byteLength: 0 wherever splatCenters was read afterward), not a
+    // hypothetical. The copy itself is cheap - a raw array copy, not
+    // the expensive per-splat decode loop the original transfer-instead-
+    // of-clone change was actually targeting.
+    const centersForWorker = new Float32Array(splatCenters);
     const message: GeodesicWorkerRequest = {
       type: "buildSplatGraph",
       requestId,
-      centers: splatCenters,
+      centers: centersForWorker,
       k: 8,
     };
     console.log(message.type);
@@ -294,7 +309,7 @@ export const Measurement = ({
     // whatever's actually selected by then.
     const rafId = requestAnimationFrame(() => {
       setBuildingGraph(true);
-      freshWorker.postMessage(message, [splatCenters.buffer]);
+      freshWorker.postMessage(message, [centersForWorker.buffer]);
     });
     return () => cancelAnimationFrame(rafId);
   }, [splatCenters, createGeodesicWorker]);
