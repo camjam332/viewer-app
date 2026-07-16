@@ -8,6 +8,7 @@ type FloaterCleanupPanelProps = {
   threshold: number;
   onAnalyze: () => void;
   onThresholdChange: (threshold: number) => void;
+  onRevert: () => void;
 };
 
 // The analysis (k-NN density scoring) is a real, expensive, one-time
@@ -28,6 +29,7 @@ export const FloaterCleanupPanel = ({
   threshold,
   onAnalyze,
   onThresholdChange,
+  onRevert,
 }: FloaterCleanupPanelProps) => {
   const [displayThreshold, setDisplayThreshold] = useState(threshold);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -58,9 +60,10 @@ export const FloaterCleanupPanel = ({
         </button>
       ) : (
         <>
+          <button onClick={onRevert}>Reset</button>
           <input
             type="range"
-            min={1}
+            min={0}
             max={10}
             step={0.1}
             value={displayThreshold}

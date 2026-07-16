@@ -56,6 +56,7 @@ import {
   analyzeSparkSplatFloaters,
   applySparkFloaterThreshold,
   type FloaterAnalysis,
+  revertSparkFloaterAnalysis,
 } from "./utils/spark_Splat/utils";
 import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
 import { ToastNotification } from "./ui/ToastNotification";
@@ -74,7 +75,7 @@ const GIZMO_AXIS_COLORS: [string, string, string] = ["red", "green", "blue"];
 // is sparser) - untested against a real, noisy capture, so treat this as
 // a reasonable first guess rather than a validated default. Likely needs
 // tuning once tried against real data.
-const DEFAULT_FLOATER_THRESHOLD = 3.0;
+const DEFAULT_FLOATER_THRESHOLD = 1.5;
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -480,6 +481,17 @@ function App() {
     [floaterAnalysis],
   );
 
+  const handleRevertFloaters = useCallback(() => {
+    if (!splatRef.current) return;
+
+    // Revert the physical mesh data and re-enable LOD
+    revertSparkFloaterAnalysis(splatRef.current, floaterAnalysis);
+
+    // Clear your React state trackers
+    setFloaterAnalysis(null);
+    setHiddenFloaterCount(0);
+  }, [floaterAnalysis]);
+
   useEffect(() => {
     pruneUploadedAnnotations();
   }, [pruneUploadedAnnotations]);
@@ -525,6 +537,7 @@ function App() {
             threshold={floaterThreshold}
             onAnalyze={handleAnalyzeFloaters}
             onThresholdChange={handleFloaterThresholdChange}
+            onRevert={handleRevertFloaters}
           />
         )}
       </div>

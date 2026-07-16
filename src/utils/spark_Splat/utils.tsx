@@ -453,6 +453,40 @@ function getFloaterWorker(): Worker {
   return worker;
 }
 
+export function revertSparkFloaterAnalysis(
+  splatMesh: SplatMesh,
+  analysis: FloaterAnalysis | null,
+): void {
+  // 1. Re-enable the Level of Detail (LOD) system
+  splatMesh.enableLod = true;
+
+  const packedSplats = splatMesh.packedSplats;
+  if (!packedSplats || !analysis) return;
+
+  const { opacities } = analysis;
+
+  // 2. Restore every splat back to its original opacity
+  for (let i = 0; i < opacities.length; i++) {
+    const current = packedSplats.getSplat(i);
+    const originalOpacity = opacities[i];
+
+    if (current.opacity === originalOpacity) continue; // Already at original state, skip
+
+    packedSplats.setSplat(
+      i,
+      current.center,
+      current.scales,
+      current.quaternion,
+      originalOpacity,
+      current.color,
+    );
+  }
+
+  // 3. Inform the generator to rebuild the GPU buffers
+  packedSplats.needsUpdate = true;
+  splatMesh.updateGenerator();
+}
+
 /**
  * Runs the one-time, expensive k-NN density analysis for a loaded splat.
  * Reuses the already-extracted world-space centers (from

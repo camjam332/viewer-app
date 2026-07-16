@@ -1,5 +1,4 @@
 import type { SparkRenderer } from "@sparkjsdev/spark";
-import type { WebGLRenderer } from "three";
 import { create } from "zustand";
 
 type SparkState = {
