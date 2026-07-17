@@ -528,6 +528,7 @@ function App() {
     setErrorMessage(null);
     setLoadedSplatMesh(null);
     setSplatCenters(null);
+    clearPoints();
     splatCentersRef.current = null;
     setFloaterAnalysis(null);
     setIsAnalyzingFloaters(false);

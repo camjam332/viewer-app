@@ -1,4 +1,4 @@
-import type { SplatMesh } from "@sparkjsdev/spark";
+import { SplatMesh } from "@sparkjsdev/spark";
 import { Quaternion, Vector3 } from "three";
 import type { CameraControls } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -256,9 +256,33 @@ export function handleSparkSplatLoad(
   const box = splatMesh
     .getBoundingBox(false)
     .applyMatrix4(splatMesh.matrixWorld);
-
-  setMarkerScale(box.max.x - box.min.x);
   clearPoints();
+
+  const uniformScales: number[] = [];
+
+  splatMesh.forEachSplat((index, center, scales) => {
+    const [scaleX, scaleY, scaleZ] = scales;
+    // Volume-preserving uniform scale for this specific splat
+    uniformScales.push(Math.cbrt(scaleX * scaleY * scaleZ));
+  });
+
+  // 2. Sort numerically
+  uniformScales.sort((a, b) => a - b);
+
+  // 3. Extract the exact single median value
+  const mid = Math.floor(uniformScales.length / 2);
+  const uniformMedianScale =
+    uniformScales.length % 2 !== 0
+      ? uniformScales[mid]
+      : (uniformScales[mid - 1] + uniformScales[mid]) / 2;
+
+  console.log(
+    `Your scene's Uniform Median Scale: ${uniformMedianScale * 1000}`,
+  );
+
+  const markerScale = uniformMedianScale * 1000;
+
+  setMarkerScale(markerScale);
 
   if (viewMode === "interior") {
     cameraControlsRef.current.setLookAt(0, 0, 0, 0, 0, 1, false);
