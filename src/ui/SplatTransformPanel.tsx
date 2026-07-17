@@ -6,6 +6,14 @@ type SplatTransformPanelProps = {
   rotationDeg: [number, number, number];
   onPositionChange: (axis: Axis, value: number) => void;
   onRotationChange: (axis: Axis, degrees: number) => void;
+  // Re-syncs the geodesic graph and click-based annotation data with the
+  // splat's current position/rotation - neither updates automatically
+  // when this panel (or the gizmo) moves the splat, so measurement and
+  // annotation silently go stale after any transform edit until this is
+  // clicked. Deliberately manual, not automatic - see the comment on
+  // handleRefreshSplatMeasurementData in App.tsx for why.
+  onRefreshMeasurementData: () => void;
+  isRefreshingMeasurementData: boolean;
 };
 
 /**
@@ -27,6 +35,8 @@ export const SplatTransformPanel = ({
   rotationDeg,
   onPositionChange,
   onRotationChange,
+  onRefreshMeasurementData,
+  isRefreshingMeasurementData,
 }: SplatTransformPanelProps) => {
   return (
     <div className="flex flex-col gap-2 rounded-lg bg-black/70 p-2 text-white backdrop-blur">
@@ -75,6 +85,17 @@ export const SplatTransformPanel = ({
           ))}
         </div>
       </div>
+
+      <button
+        type="button"
+        onClick={onRefreshMeasurementData}
+        disabled={isRefreshingMeasurementData}
+        className="rounded bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20 disabled:opacity-50"
+      >
+        {isRefreshingMeasurementData
+          ? "Refreshing…"
+          : "Refresh Measurement Data"}
+      </button>
     </div>
   );
 };

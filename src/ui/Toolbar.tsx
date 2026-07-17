@@ -263,7 +263,10 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
           {points.length > 0 && (
             <button
               className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-              onClick={clearPoints}
+              onClick={() => {
+                clearPoints();
+                setMeasurementMode("linear");
+              }}
             >
               Clear Points
             </button>

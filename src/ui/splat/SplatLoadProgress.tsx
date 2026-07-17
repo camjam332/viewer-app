@@ -12,6 +12,7 @@ export type SplatLoadProgressValue = {
 
 type SplatLoadProgressProps = {
   progress: SplatLoadProgressValue | null;
+  indeterminateMessage: string | null;
 };
 
 /**
@@ -28,8 +29,29 @@ type SplatLoadProgressProps = {
  * falls back to a plain "bytes loaded so far" readout with no percentage
  * or bar fill in that case.
  */
-export const SplatLoadProgress = ({ progress }: SplatLoadProgressProps) => {
-  if (!progress) return null;
+export const SplatLoadProgress = ({
+  progress,
+  indeterminateMessage,
+}: SplatLoadProgressProps) => {
+  // Was returning null the moment progress went falsy, before ever
+  // checking indeterminateMessage - meaning that prop was declared but
+  // structurally unreachable. This is the phase indeterminateMessage
+  // exists for: progress (byte-level download tracking) is done and
+  // cleared, but there's still real work happening with nothing
+  // granular to measure.
+  if (!progress && !indeterminateMessage) return null;
+
+  if (!progress) {
+    return (
+      <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
+        <div className="w-full max-w-md rounded-lg bg-black/80 p-4 text-center text-white backdrop-blur">
+          <h1 className="text-lg font-semibold md:text-xl">
+            {indeterminateMessage}
+          </h1>
+        </div>
+      </div>
+    );
+  }
 
   const percent =
     progress.lengthComputable && progress.total > 0

@@ -56,6 +56,7 @@ import {
   analyzeSparkSplatFloaters,
   applySparkFloaterThreshold,
   revertSparkFloaterAnalysis,
+  extractSparkSplatCentersAsync,
   type FloaterAnalysis,
 } from "./utils/spark_Splat/utils";
 import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
@@ -270,6 +271,7 @@ function App() {
   // doesn't make that work any faster, it's a detection mechanism so the
   // UI can at least show something during it instead of silently
   // freezing with no explanation).
+  const [isPreparingSplatData, setIsPreparingSplatData] = useState(false);
 
   // Stable (empty deps) - required, not a style choice: this gets passed
   // as SparkSplat's onProgress prop, which sits in that component's
@@ -337,6 +339,48 @@ function App() {
     },
     [readSplatTransform],
   );
+
+  // splatCenters (and splatCentersRef) are only ever extracted once, at
+  // load time, using whatever matrixWorld the splat had at that exact
+  // moment - confirmed via source tracing: neither handleSplatPositionEdit
+  // nor handleSplatRotationEdit, nor TransformControls' own
+  // onObjectChange, ever call setSplatCenters. This means the geodesic
+  // worker's graph, and the click-based normal-estimation ref, both go
+  // stale the instant a loaded splat is moved or rotated afterward -
+  // confirmed as a real bug, not just a theoretical risk: a click's
+  // world-space point is current, but the graph it's compared against is
+  // frozen at pre-transform positions.
+  //
+  // Deliberately manual for now rather than automatic - re-extracting on
+  // every single gizmo-drag frame would mean re-running a real, worker-
+  // bound k-d tree/extraction pass dozens of times a second while
+  // dragging, the same reasoning that kept the floater connectivity
+  // multiplier from being a live-drag control. A manual trigger, used
+  // once after finishing an edit, is the deliberately simple version of
+  // this fix - automatic (debounced) re-extraction is a reasonable next
+  // step if this proves too easy to forget to click.
+  const [isRefreshingMeasurementData, setIsRefreshingMeasurementData] =
+    useState(false);
+  const handleRefreshSplatMeasurementData = useCallback(async () => {
+    const targetSplat = splatRef.current;
+    if (!targetSplat) return;
+    setIsRefreshingMeasurementData(true);
+    try {
+      const { forState, forClicks } =
+        await extractSparkSplatCentersAsync(targetSplat);
+      // Staleness guard, same reasoning as handleSparkSplatLoad's - if
+      // the user switched models while this was running, applying the
+      // result now would silently corrupt whatever's actually loaded.
+      if (splatRef.current !== targetSplat) return;
+      splatCentersRef.current = forClicks;
+      setSplatCenters(forState);
+    } catch (error) {
+      console.error("Failed to refresh splat measurement data:", error);
+    } finally {
+      setIsRefreshingMeasurementData(false);
+    }
+  }, []);
+
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
 
   const handleRetry = useCallback(() => {
@@ -360,6 +404,7 @@ function App() {
   const handleSplatError = useCallback((err: unknown) => {
     setErrorMessage(err instanceof Error ? err.message : String(err));
     setSplatProgress(null);
+    setIsPreparingSplatData(false);
   }, []);
   const flowDirection = useMemo(
     () => directionFromYawPitch(config.flowYawDeg, config.flowPitchDeg),
@@ -390,6 +435,7 @@ function App() {
     setConnectivityMultiplier(DEFAULT_CONNECTIVITY_MULTIPLIER);
     setSplatTransformDisplay(null);
     setSplatProgress(null);
+    setIsPreparingSplatData(false);
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -422,6 +468,7 @@ function App() {
         setLoadedSplatMesh,
         applySplatCenters: (forState, forClicks) => {
           splatCentersRef.current = forClicks;
+          setIsPreparingSplatData(true);
           // Yield one frame before triggering the actual update - without
           // this, setSplatCenters below could get batched into the very
           // same blocking render pass as setIsPreparingSplatData itself,
@@ -439,6 +486,7 @@ function App() {
             // make the underlying cascade any faster.
             requestAnimationFrame(() => {
               setSplatProgress(null);
+              setIsPreparingSplatData(false);
             });
           });
         },
@@ -585,6 +633,8 @@ function App() {
             rotationDeg={splatTransformDisplay.rotationDeg}
             onPositionChange={handleSplatPositionEdit}
             onRotationChange={handleSplatRotationEdit}
+            onRefreshMeasurementData={handleRefreshSplatMeasurementData}
+            isRefreshingMeasurementData={isRefreshingMeasurementData}
           />
         )}
         {isSplatModel && splatCenters && splatCenters.length > 0 && (
@@ -618,7 +668,12 @@ function App() {
       )}
       <ToastNotification url={effectiveModelUrl} />
       {isSplatModel ? (
-        <SplatLoadProgress progress={splatProgress} />
+        <SplatLoadProgress
+          progress={splatProgress}
+          indeterminateMessage={
+            isPreparingSplatData ? "Preparing measurement data…" : null
+          }
+        />
       ) : (
         <Loader />
       )}
