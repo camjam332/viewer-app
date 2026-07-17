@@ -1,4 +1,4 @@
-import { Canvas, useThree, type ThreeEvent } from "@react-three/fiber";
+import { Canvas, type ThreeEvent } from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
 import {
   Environment,
@@ -31,8 +31,7 @@ import {
   SplatLoadProgress,
   type SplatLoadProgressValue,
 } from "./ui/splat/SplatLoadProgress";
-import type { Annotation } from "./state/state";
-import { Box3, Mesh, MathUtils, type Group } from "three";
+import { Mesh, MathUtils, type Group } from "three";
 import {
   FieldContext,
   StreamlineField,
@@ -45,7 +44,6 @@ import {
 import { Toolbar } from "./ui/Toolbar";
 import { useAero } from "./state/aeroState";
 import { TextureEdit } from "./ui/TextureEdit";
-import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SparkScene } from "./components/spark_Splat/SparkScene";
 import { SparkSplat } from "./components/spark_Splat/SparkSplat";
@@ -62,6 +60,9 @@ import {
 import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
 import { StaleMeasurementDataWarning } from "./ui/splat/StaleMeasurementDataWarning";
 import { ToastNotification } from "./ui/ToastNotification";
+import { CameraFocus } from "./components/CameraFocus";
+import { FrameOnLoad } from "./components/FrameOnLoad";
+import { InvalidateBridge } from "./components/InvalidateBridge";
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
 // written directly in JSX creates a brand-new array on every single App
@@ -111,85 +112,6 @@ const DEFAULT_FLOATER_THRESHOLD = 0.01;
 // than left as a single fixed constant - this default is just a starting
 // point for that control, not a validated number on its own.
 const DEFAULT_CONNECTIVITY_MULTIPLIER = 3.0;
-
-type CameraFocusParams = {
-  cameraControlsRef: RefObject<CameraControls | null>;
-  focused: Annotation | null;
-  focusedId: string | null;
-  resetCameraPos: boolean;
-  resetCallback: () => void;
-};
-
-const CameraFocus = ({
-  cameraControlsRef,
-  focused,
-  focusedId,
-  resetCameraPos,
-  resetCallback,
-}: CameraFocusParams) => {
-  const markerScale = useViewer((s) => s.markerScale);
-  useEffect(() => {
-    if (!cameraControlsRef.current) return;
-    if (focused) {
-      const dist = 0.25 * markerScale;
-      const [px, py, pz] = focused.position;
-      const [nx, ny, nz] = focused.normal ?? [0, 0, 1];
-      const camX = px + nx * dist;
-      const camY = py + ny * dist;
-      const camZ = pz + nz * dist;
-      cameraControlsRef.current.setLookAt(camX, camY, camZ, px, py, pz, true);
-    } else {
-      cameraControlsRef.current.reset(true);
-    }
-  }, [focusedId]);
-
-  useEffect(() => {
-    if (!cameraControlsRef.current) return;
-    if (resetCameraPos)
-      cameraControlsRef.current.reset(true).then(() => {
-        resetCallback();
-      });
-  }, [resetCameraPos]);
-
-  return null;
-};
-
-function FrameOnLoad({
-  controlsRef,
-  modelRef,
-  modelUrl,
-}: {
-  controlsRef: RefObject<CameraControls | null>;
-  modelRef: RefObject<Group | null>;
-  modelUrl: string | null;
-}) {
-  const setMarkerScale = useViewer((s) => s.setMarkerScale);
-  const clearPoints = useMeasurement((s) => s.clearPoints);
-  useEffect(() => {
-    if (!controlsRef.current || !modelRef.current) return;
-    controlsRef.current.reset(false);
-    const box = new Box3().setFromObject(modelRef.current);
-    const markerScale = box.max.x - box.min.x;
-    setMarkerScale(markerScale);
-    clearPoints();
-    controlsRef.current.fitToBox(box, false);
-    controlsRef.current.saveState();
-  }, [modelUrl]);
-  return null;
-}
-
-function InvalidateBridge() {
-  const invalidate = useThree((s) => s.invalidate);
-  const gl = useThree((s) => s.gl);
-  const setRequestRender = useViewer((s) => s.setRequestRender);
-  useEffect(() => {
-    setRequestRender(invalidate);
-  }, [invalidate, setRequestRender]);
-  useEffect(() => {
-    registerRenderer(gl);
-  }, [gl]);
-  return null;
-}
 
 // Mounted inside <Canvas>, not in App's own top-level effects - same
 // reasoning as InvalidateBridge: <CameraControls> lives on R3F's own
