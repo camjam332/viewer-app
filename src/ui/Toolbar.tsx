@@ -61,7 +61,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
 
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+      className="flex flex-wrap z-20 items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
                 md:w-auto md:justify-start md:flex-nowrap md:items-start"
     >
       <button
