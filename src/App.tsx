@@ -31,7 +31,7 @@ import {
   SplatLoadProgress,
   type SplatLoadProgressValue,
 } from "./ui/splat/SplatLoadProgress";
-import { Mesh, MathUtils, type Group } from "three";
+import { Mesh, MathUtils, type Group, DoubleSide } from "three";
 import {
   FieldContext,
   StreamlineField,
@@ -725,6 +725,7 @@ function App() {
           left: 0,
           width: "100%",
           height: "100%",
+          backgroundColor: "black",
         }}
         camera={{ near: 0.001, far: 1000 }}
         // R3F defaults antialias to true (unlike vanilla Three.js's own
@@ -827,7 +828,7 @@ function App() {
             />
           </FieldContext.Provider>
         )}
-        <Grid infiniteGrid fadeDistance={50} />
+        <Grid side={DoubleSide} infiniteGrid />
       </Canvas>
     </>
   );
