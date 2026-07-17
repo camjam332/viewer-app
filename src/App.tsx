@@ -60,6 +60,7 @@ import {
   type FloaterAnalysis,
 } from "./utils/spark_Splat/utils";
 import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
+import { StaleMeasurementDataWarning } from "./ui/splat/StaleMeasurementDataWarning";
 import { ToastNotification } from "./ui/ToastNotification";
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
@@ -72,6 +73,28 @@ import { ToastNotification } from "./ui/ToastNotification";
 // as they always should have.
 const GIZMO_MARGIN: [number, number] = [80, 80];
 const GIZMO_AXIS_COLORS: [string, string, string] = ["red", "green", "blue"];
+
+// Shared shape between the live display (splatTransformDisplay) and the
+// baseline captured whenever splatCenters is last extracted
+// (splatCentersExtractedAtTransform) - a pure function, not a hook, so
+// both readSplatTransform (updates React state) and the baseline-capture
+// call sites (inside applySplatCenters / handleRefreshSplatMeasurementData)
+// can use the exact same snapshot logic without duplicating it.
+type SplatTransformSnapshot = {
+  position: [number, number, number];
+  rotationDeg: [number, number, number];
+};
+function getSplatTransformSnapshot(obj: SplatMesh): SplatTransformSnapshot {
+  return {
+    position: [obj.position.x, obj.position.y, obj.position.z],
+    rotationDeg: [
+      MathUtils.radToDeg(obj.rotation.x),
+      MathUtils.radToDeg(obj.rotation.y),
+      MathUtils.radToDeg(obj.rotation.z),
+    ],
+  };
+}
+
 // A moderate starting point (component size / total splat count) - real
 // floater clusters should be a tiny fraction of the whole scene, while
 // the dominant mass should sit close to 1.0. Untested against a real,
@@ -168,6 +191,51 @@ function InvalidateBridge() {
   return null;
 }
 
+// Mounted inside <Canvas>, not in App's own top-level effects - same
+// reasoning as InvalidateBridge: <CameraControls> lives on R3F's own
+// separate reconciler, and a sibling component inside the same Canvas is
+// what gives a reliable "the ref is attached by the time this effect
+// runs" guarantee, unlike an effect on the outer DOM-based root trying
+// to reach into it.
+//
+// wake/rest (not controlstart/controlend) are what's actually needed
+// here: wake/rest track real camera motion, including the momentum/
+// damping coasting period after a drag is released, which controlstart/
+// controlend alone would miss entirely - and wheel-based zoom doesn't
+// emit controlstart/controlend at all (a documented limitation of the
+// underlying camera-controls library), so relying on those specifically
+// would leave scroll-zoom clicks unprotected.
+function CameraActivityBridge({
+  cameraControlsRef,
+}: {
+  cameraControlsRef: RefObject<CameraControls | null>;
+}) {
+  const setIsCameraMoving = useViewer((s) => s.setIsCameraMoving);
+  useEffect(() => {
+    const controls = cameraControlsRef.current;
+    if (!controls) return;
+
+    const handleWake = () => setIsCameraMoving(true);
+    const handleRest = () => setIsCameraMoving(false);
+    // sleep also implies rest, and fires unconditionally even in the
+    // (documented) wheel-zoom case where rest's usual pairing might
+    // behave differently - cheap, harmless redundancy with handleRest.
+    const handleSleep = () => setIsCameraMoving(false);
+
+    controls.addEventListener("wake", handleWake);
+    controls.addEventListener("rest", handleRest);
+    controls.addEventListener("sleep", handleSleep);
+
+    return () => {
+      controls.removeEventListener("wake", handleWake);
+      controls.removeEventListener("rest", handleRest);
+      controls.removeEventListener("sleep", handleSleep);
+    };
+  }, [cameraControlsRef, setIsCameraMoving]);
+
+  return null;
+}
+
 function App() {
   const annotations = useViewer((s) => s.annotations);
   const focusedId = useViewer((s) => s.focusedId);
@@ -258,10 +326,21 @@ function App() {
     DEFAULT_CONNECTIVITY_MULTIPLIER,
   );
 
-  const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
-    position: [number, number, number];
-    rotationDeg: [number, number, number];
-  } | null>(null);
+  const [splatTransformDisplay, setSplatTransformDisplay] =
+    useState<SplatTransformSnapshot | null>(null);
+  // The transform captured at the moment splatCenters was last actually
+  // extracted (initial load, or a manual "Refresh Measurement Data")—
+  // compared against the live splatTransformDisplay to detect whether
+  // the geodesic graph / click-based annotation data has gone stale.
+  // Confirmed as a real bug, not a hypothetical: neither the gizmo nor
+  // the Transform Panel's position/rotation edits ever re-extract
+  // centers on their own, so a transform edit after load silently leaves
+  // measurement data pointing at pre-transform positions with no
+  // indication anything's wrong - this is what actually surfaces that.
+  const [
+    splatCentersExtractedAtTransform,
+    setSplatCentersExtractedAtTransform,
+  ] = useState<SplatTransformSnapshot | null>(null);
   const [splatProgress, setSplatProgress] =
     useState<SplatLoadProgressValue | null>(null);
   // Tracks the gap between the splat becoming visible and the
@@ -303,14 +382,7 @@ function App() {
       setSplatTransformDisplay(null);
       return;
     }
-    setSplatTransformDisplay({
-      position: [target.position.x, target.position.y, target.position.z],
-      rotationDeg: [
-        MathUtils.radToDeg(target.rotation.x),
-        MathUtils.radToDeg(target.rotation.y),
-        MathUtils.radToDeg(target.rotation.z),
-      ],
-    });
+    setSplatTransformDisplay(getSplatTransformSnapshot(target));
   }, []);
 
   const handleSplatPositionEdit = useCallback(
@@ -374,6 +446,9 @@ function App() {
       if (splatRef.current !== targetSplat) return;
       splatCentersRef.current = forClicks;
       setSplatCenters(forState);
+      setSplatCentersExtractedAtTransform(
+        getSplatTransformSnapshot(targetSplat),
+      );
     } catch (error) {
       console.error("Failed to refresh splat measurement data:", error);
     } finally {
@@ -420,6 +495,32 @@ function App() {
     return { ...modelField, flowDirection, right, up };
   }, [modelField, flowDirection, right, up]);
 
+  // Compares the live transform against the one captured at last
+  // extraction - epsilons account for ordinary floating-point noise
+  // (repeated updateMatrixWorld calls, etc.), not meant to tolerate any
+  // real, intentional edit. Position tolerance is in scene units, so
+  // it's necessarily a guess about "how precise does this need to be" -
+  // fine for typical scene scales, but worth knowing if you're working
+  // at a very different scale than what this was built against.
+  const isMeasurementDataStale = useMemo(() => {
+    if (!splatTransformDisplay || !splatCentersExtractedAtTransform) {
+      return false;
+    }
+    const POSITION_EPSILON = 0.0001;
+    const ROTATION_EPSILON_DEG = 0.01;
+    const positionChanged = splatTransformDisplay.position.some(
+      (v, i) =>
+        Math.abs(v - splatCentersExtractedAtTransform.position[i]) >
+        POSITION_EPSILON,
+    );
+    const rotationChanged = splatTransformDisplay.rotationDeg.some(
+      (v, i) =>
+        Math.abs(v - splatCentersExtractedAtTransform.rotationDeg[i]) >
+        ROTATION_EPSILON_DEG,
+    );
+    return positionChanged || rotationChanged;
+  }, [splatTransformDisplay, splatCentersExtractedAtTransform]);
+
   useEffect(() => {
     setModelField(null);
     setShowTransformControls(false);
@@ -434,6 +535,7 @@ function App() {
     setHiddenFloaterCount(0);
     setConnectivityMultiplier(DEFAULT_CONNECTIVITY_MULTIPLIER);
     setSplatTransformDisplay(null);
+    setSplatCentersExtractedAtTransform(null);
     setSplatProgress(null);
     setIsPreparingSplatData(false);
   }, [effectiveModelUrl]);
@@ -468,6 +570,9 @@ function App() {
         setLoadedSplatMesh,
         applySplatCenters: (forState, forClicks) => {
           splatCentersRef.current = forClicks;
+          setSplatCentersExtractedAtTransform(
+            getSplatTransformSnapshot(splatMesh),
+          );
           setIsPreparingSplatData(true);
           // Yield one frame before triggering the actual update - without
           // this, setSplatCenters below could get batched into the very
@@ -502,6 +607,12 @@ function App() {
 
   const handleSplatClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
+      // Non-reactive read (getState, not the useViewer hook) -
+      // deliberately not a subscription, so this callback's own identity
+      // doesn't change every time wake/rest fires during an orbit, which
+      // could otherwise ripple into anything keyed on handleSplatClick's
+      // reference elsewhere.
+      if (useViewer.getState().isCameraMoving) return;
       if (!splatRef.current) return;
       handleSparkSplatClick(event, splatRef.current, {
         tool,
@@ -651,6 +762,12 @@ function App() {
             onConnectivityMultiplierChange={setConnectivityMultiplier}
           />
         )}
+        {isSplatModel && isMeasurementDataStale && (
+          <StaleMeasurementDataWarning
+            onRefresh={handleRefreshSplatMeasurementData}
+            isRefreshing={isRefreshingMeasurementData}
+          />
+        )}
       </div>
       {errorMessage && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
@@ -705,6 +822,7 @@ function App() {
         </GizmoHelper>
         <CameraControls ref={cameraControlsRef} makeDefault />
         <InvalidateBridge />
+        <CameraActivityBridge cameraControlsRef={cameraControlsRef} />
 
         {isSplatModel && effectiveModelUrl && (
           <>

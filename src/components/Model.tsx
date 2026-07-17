@@ -470,6 +470,11 @@ export const Model = ({ ref, url, onField, onReady }: ModelParams) => {
 
   const clickHandler = (e: ThreeEvent<MouseEvent>) => {
     if (editTexture) return;
+    // Non-reactive read, same reasoning as handleSplatClick in App.tsx -
+    // a click landing at the tail end of an orbit drag, or during the
+    // brief momentum/damping coasting period after release, shouldn't
+    // silently add an unwanted measurement point or annotation.
+    if (useViewer.getState().isCameraMoving) return;
     e.stopPropagation();
     const point = e.point.clone();
     if (tool === "measure") {
