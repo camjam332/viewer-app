@@ -50,7 +50,7 @@ export const ModelPicker = ({
   }, [modelUrl]);
 
   return (
-    <div className="relative">
+    <div className="relative z-40">
       <button
         className="flex items-center gap-2 rounded bg-white/10 px-3 py-1 text-white hover:bg-white/20"
         onClick={() => setOpen((v) => !v)}
@@ -73,7 +73,7 @@ export const ModelPicker = ({
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-10 z-20 mt-1 w-56 rounded bg-black/70 p-1 backdrop-blur">
+          <div className="absolute left-0 top-10 z-50 mt-1 w-56 rounded bg-black/70 p-1 backdrop-blur">
             {models.map((model) => (
               <button
                 key={model.modelUrl}

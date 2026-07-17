@@ -1,4 +1,4 @@
-import type { SplatMesh } from "@sparkjsdev/spark";
+import { SplatMesh } from "@sparkjsdev/spark";
 import { Quaternion, Vector3 } from "three";
 import type { CameraControls } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
@@ -256,9 +256,29 @@ export function handleSparkSplatLoad(
   const box = splatMesh
     .getBoundingBox(false)
     .applyMatrix4(splatMesh.matrixWorld);
-
-  setMarkerScale(box.max.x - box.min.x);
   clearPoints();
+
+  const uniformScales: number[] = [];
+
+  splatMesh.forEachSplat((index, center, scales) => {
+    const [scaleX, scaleY, scaleZ] = scales;
+    // Volume-preserving uniform scale for this specific splat
+    uniformScales.push(Math.cbrt(scaleX * scaleY * scaleZ));
+  });
+
+  // 2. Sort numerically
+  uniformScales.sort((a, b) => a - b);
+
+  // 3. Extract the exact single median value
+  const mid = Math.floor(uniformScales.length / 2);
+  const uniformMedianScale =
+    uniformScales.length % 2 !== 0
+      ? uniformScales[mid]
+      : (uniformScales[mid - 1] + uniformScales[mid]) / 2;
+
+  const markerScale = uniformMedianScale * 1000;
+
+  setMarkerScale(markerScale);
 
   if (viewMode === "interior") {
     cameraControlsRef.current.setLookAt(0, 0, 0, 0, 0, 1, false);
@@ -376,6 +396,7 @@ export function handleSparkSplatClick(
   const { tool, addPoint, addAnnotation, effectiveModelUrl, splatCentersRef } =
     deps;
 
+  event.stopPropagation();
   if (tool === "measure") {
     const point = event.point.clone();
     addPoint(point);
@@ -400,4 +421,214 @@ export function handleSparkSplatClick(
       effectiveModelUrl ?? undefined,
     );
   }
+}
+
+// ---------------------------------------------------------------------
+// Floater cleanup
+// ---------------------------------------------------------------------
+
+export type FloaterAnalysis = {
+  // Connected component size / total splat count, per splat - see
+  // floaterDetection.worker.ts for why this replaced local-density
+  // scoring. A splat in the scene's dominant mass is close to 1.0; a
+  // splat in a small, disconnected floater cluster is close to
+  // (cluster size / total), a small number.
+  componentSizeFractions: Float32Array;
+  opacities: Float32Array;
+};
+
+// Persistent, lazily-created singleton, same reasoning as the splat
+// centers worker: analysis is triggered explicitly by the user (not on
+// every load), but a fresh Worker per click would still mean re-paying
+// real script/instantiation overhead each time.
+let sharedFloaterWorker: Worker | null = null;
+const pendingFloaterRequests = new Map<
+  number,
+  { resolve: (result: FloaterAnalysis) => void; reject: (err: unknown) => void }
+>();
+let nextFloaterRequestId = 0;
+
+function getFloaterWorker(): Worker {
+  if (sharedFloaterWorker) return sharedFloaterWorker;
+
+  const worker = new Worker(
+    new URL("./floaterDetection.worker.ts", import.meta.url),
+    { type: "module" },
+  );
+
+  worker.onmessage = (
+    e: MessageEvent<{
+      requestId: number;
+      componentSizeFractions: Float32Array;
+      opacities: Float32Array;
+    }>,
+  ) => {
+    const { requestId, componentSizeFractions, opacities } = e.data;
+    const pending = pendingFloaterRequests.get(requestId);
+    if (!pending) return; // already settled/abandoned - safe to ignore
+    pendingFloaterRequests.delete(requestId);
+    pending.resolve({ componentSizeFractions, opacities });
+  };
+
+  worker.onerror = (err) => {
+    for (const { reject } of pendingFloaterRequests.values()) reject(err);
+    pendingFloaterRequests.clear();
+  };
+
+  sharedFloaterWorker = worker;
+  return worker;
+}
+
+export function revertSparkFloaterAnalysis(
+  splatMesh: SplatMesh,
+  analysis: FloaterAnalysis | null,
+): void {
+  // 1. Re-enable the Level of Detail (LOD) system
+  splatMesh.enableLod = true;
+
+  const packedSplats = splatMesh.packedSplats;
+  if (!packedSplats || !analysis) return;
+
+  const { opacities } = analysis;
+
+  // 2. Restore every splat back to its original opacity
+  for (let i = 0; i < opacities.length; i++) {
+    const current = packedSplats.getSplat(i);
+    const originalOpacity = opacities[i];
+
+    if (current.opacity === originalOpacity) continue; // Already at original state, skip
+
+    packedSplats.setSplat(
+      i,
+      current.center,
+      current.scales,
+      current.quaternion,
+      originalOpacity,
+      current.color,
+    );
+  }
+
+  // 3. Inform the generator to rebuild the GPU buffers
+  packedSplats.needsUpdate = true;
+  splatMesh.updateGenerator();
+}
+
+/**
+ * Runs the one-time, expensive k-NN density analysis for a loaded splat.
+ * Reuses the already-extracted world-space centers (from
+ * extractSparkSplatCentersAsync, already sitting in App.tsx state for
+ * the geodesic feature) rather than re-decoding them - only opacity
+ * needs a fresh decode pass here.
+ */
+export function analyzeSparkSplatFloaters(
+  splatMesh: SplatMesh,
+  centers: Float32Array,
+  // Candidate neighbors checked per splat when building the proximity
+  // graph in floaterDetection.worker.ts - bumped up from the original
+  // density-score default (8) since under-connecting here has a real
+  // failure mode: a genuinely continuous structure (a thin wire, an
+  // edge) could get split into multiple small components purely because
+  // too few candidates were checked, and get wrongly treated as a
+  // floater. An unverified starting point, not a validated number.
+  k = 12,
+  // How generous the per-connection local radius is - see
+  // floaterDetection.worker.ts for the full reasoning. User-adjustable
+  // (FloaterCleanupPanel.tsx's secondary control) rather than fixed,
+  // since a dense object scan and a sparse room capture needed visibly
+  // different values during actual testing - no single default held up
+  // across both.
+  radiusMultiplier = 3.0,
+): Promise<FloaterAnalysis> {
+  // When LOD is active, Spark's actual GPU render path swaps to
+  // packedSplats.lodSplats - a separate PackedSplats instance built by
+  // the "Tiny LoD" algorithm, with a different splat count entirely
+  // (confirmed: 270,491 became 325,942 for one real capture during
+  // earlier performance work). There's no clean index mapping from the
+  // base array to that restructured one, so editing packedSplats (what
+  // applySparkFloaterThreshold does) has genuinely zero visual effect
+  // while LOD rendering is active - confirmed directly from
+  // SplatMesh.ts's per-frame update path. Disabling LOD here is a real,
+  // known tradeoff (the antialias/LOD work earlier this session measured
+  // a 46->64fps improvement from having it on) - accepted specifically
+  // at the moment floater cleanup is opted into, not silently for every
+  // splat regardless of whether this feature is ever used.
+  splatMesh.enableLod = false;
+
+  return new Promise((resolve, reject) => {
+    const packedSplats = splatMesh.packedSplats;
+    const numSplats = packedSplats?.numSplats ?? 0;
+    if (!packedSplats || numSplats === 0 || centers.length === 0) {
+      resolve({
+        componentSizeFractions: new Float32Array(0),
+        opacities: new Float32Array(0),
+      });
+      return;
+    }
+
+    // Copies, not transfers - centers is still needed elsewhere (the
+    // click-based normal estimation ref, and this same array is reused
+    // rather than owned exclusively by this call), and packedArray is
+    // the live splat's own data, which must not be detached out from
+    // under the actively-rendering mesh.
+    const centersCopy = new Float32Array(centers);
+    const packedArrayCopy = new Uint32Array(packedSplats.packedArray ?? []);
+
+    const requestId = nextFloaterRequestId++;
+    pendingFloaterRequests.set(requestId, { resolve, reject });
+
+    getFloaterWorker().postMessage(
+      {
+        requestId,
+        centers: centersCopy,
+        packedArray: packedArrayCopy,
+        numSplats,
+        splatEncoding: packedSplats.splatEncoding,
+        k,
+        radiusMultiplier,
+      },
+      [centersCopy.buffer, packedArrayCopy.buffer],
+    );
+  });
+}
+
+/**
+ * Applies a minimum-component-size threshold to already-computed
+ * connected-component data - the cheap, instant half of the feature,
+ * meant to run on every slider tick. threshold is a fraction of total
+ * splat count (0-1): any splat whose connected component is SMALLER than
+ * this fraction of the whole scene gets hidden - the inverse comparison
+ * from the old density-score version (there, higher score meant more
+ * likely floater; here, smaller component fraction does).
+ */
+export function applySparkFloaterThreshold(
+  splatMesh: SplatMesh,
+  analysis: FloaterAnalysis,
+  threshold: number,
+): number {
+  const packedSplats = splatMesh.packedSplats;
+  if (!packedSplats) return 0;
+
+  const { componentSizeFractions, opacities } = analysis;
+  let hiddenCount = 0;
+
+  for (let i = 0; i < componentSizeFractions.length; i++) {
+    const shouldHide = componentSizeFractions[i] < threshold;
+    if (shouldHide) hiddenCount++;
+
+    const current = packedSplats.getSplat(i);
+    const targetOpacity = shouldHide ? 0 : opacities[i];
+    if (current.opacity === targetOpacity) continue; // no-op, skip the write
+
+    packedSplats.setSplat(
+      i,
+      current.center,
+      current.scales,
+      current.quaternion,
+      targetOpacity,
+      current.color,
+    );
+  }
+  packedSplats.needsUpdate = true;
+  splatMesh.updateGenerator();
+  return hiddenCount;
 }

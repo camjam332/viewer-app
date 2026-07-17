@@ -9,18 +9,22 @@ import type { Group } from "three";
 
 type ToolbarParams = {
   modelRef: RefObject<Group | null>;
+  // Gate in front of switching models - decides whether the switch needs
+  // confirmation (floater cleanup, a manual orientation edit, an
+  // in-progress measurement, or uploaded-model annotations would be
+  // discarded) and only then applies it. Toolbar no longer writes
+  // modelUrl/uploadedModelUrl to the store directly for this reason.
+  requestModelChange: (change: { url: string; isUpload: boolean }) => void;
 };
 
-export const Toolbar = ({ modelRef }: ToolbarParams) => {
+export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
   const setTool = useViewer((s) => s.setTool);
-  const setModelUrl = useViewer((s) => s.setModelUrl);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
   const setEditTexture = useViewer((s) => s.setEditTexture);
   const setShowAero = useViewer((s) => s.setShowAero);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const setResetCamera = useViewer((s) => s.setResetCamera);
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
-  const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
   const setConfig = useAero((s) => s.setConfig);
   const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
   const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
@@ -61,7 +65,7 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
 
   return (
     <div
-      className="flex flex-wrap items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
+      className="flex flex-wrap z-20 items-center justify-center gap-2 bg-black/70 backdrop-blur rounded-lg p-2
                 md:w-auto md:justify-start md:flex-nowrap md:items-start"
     >
       <button
@@ -100,12 +104,9 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
           <ModelPicker
             models={models}
             modelUrl={modelUrl}
-            setModelUrl={(url) => {
-              setUploadedModelUrl(null);
-              setModelUrl(url);
-            }}
+            setModelUrl={(url) => requestModelChange({ url, isUpload: false })}
             uploadedModelUrl={uploadedModelUrl}
-            onUploadModel={setUploadedModelUrl}
+            onUploadModel={(url) => requestModelChange({ url, isUpload: true })}
           />
           {!isSplatModel && (
             <div className="flex items-center gap-2">
@@ -234,36 +235,50 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
               Export Model
             </button>
           )}
-          {points.length > 0 &&
-            selectedModel &&
-            (isSplatModel ||
-              selectedModel.name.toLowerCase().includes("scan")) && (
-              <select
-                onChange={(e) =>
-                  setMeasurementMode(e.target.value as "linear" | "geodesic")
-                }
-                className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+          {points.length > 0 && selectedModel && isSplatModel ? (
+            <select
+              onChange={(e) =>
+                setMeasurementMode(e.target.value as "linear" | "geodesic")
+              }
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            >
+              <option
+                value="linear"
+                className="rounded bg-black/70 text-white px-2 py-1"
               >
+                Linear
+              </option>
+              {buildingGraph ? null : (
                 <option
-                  value="linear"
+                  value="geodesic"
                   className="rounded bg-black/70 text-white px-2 py-1"
                 >
-                  Linear
+                  Geodesic
                 </option>
-                {buildingGraph ? null : (
-                  <option
-                    value="geodesic"
-                    className="rounded bg-black/70 text-white px-2 py-1"
-                  >
-                    Geodesic
-                  </option>
-                )}
-              </select>
-            )}
+              )}
+            </select>
+          ) : (
+            <select
+              onChange={(e) =>
+                setMeasurementMode(e.target.value as "linear" | "geodesic")
+              }
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            >
+              <option
+                value="linear"
+                className="rounded bg-black/70 text-white px-2 py-1"
+              >
+                Linear
+              </option>
+            </select>
+          )}
           {points.length > 0 && (
             <button
               className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-              onClick={clearPoints}
+              onClick={() => {
+                clearPoints();
+                setMeasurementMode("linear");
+              }}
             >
               Clear Points
             </button>

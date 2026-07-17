@@ -146,7 +146,7 @@ export function detectOrientationFromSamples(
       if (p < min + band) bottomCount++;
       if (p > max - band) topCount++;
     }
-    if (bottomCount > topCount) up.multiplyScalar(-1);
+    if (topCount > bottomCount) up.multiplyScalar(-1);
   }
 
   const upRotation = new Quaternion().setFromUnitVectors(

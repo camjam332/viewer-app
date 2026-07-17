@@ -1,3 +1,4 @@
 public/models/nike.spz filter=lfs diff=lfs merge=lfs -text
 public/models/room.spz filter=lfs diff=lfs merge=lfs -text
 public/models/stump.spz filter=lfs diff=lfs merge=lfs -text
+public/models/fountain_photo.spz filter=lfs diff=lfs merge=lfs -text

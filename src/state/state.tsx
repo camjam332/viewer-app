@@ -53,6 +53,12 @@ const models: ModelOption[] = [
     splatViewMode: "interior",
   },
   {
+    modelUrl: "/models/fountain_photo.spz",
+    name: "Fountain (Splat)",
+    kind: "splat",
+    splatViewMode: "interior",
+  },
+  {
     modelUrl: "https://sparkjs.dev/assets/splats/butterfly.spz",
     name: "Butterfly (Splat)",
     kind: "splat",
@@ -78,6 +84,15 @@ type ViewerState = {
   setTransformControlsMode: (s: "translate" | "rotate" | "scale") => void;
   showTransformControls: boolean;
   setShowTransformControls: (b?: boolean) => void;
+  // Tracks actual camera motion (drag, momentum/damping settling, wheel
+  // zoom) - not just whether the mouse is currently down. Read
+  // non-reactively (useViewer.getState().isCameraMoving) at click time
+  // by both the mesh and splat click handlers, so a click that lands at
+  // the tail end of an orbit drag - or during the brief coasting period
+  // after release, before damping settles - doesn't silently add an
+  // unwanted measurement point or annotation.
+  isCameraMoving: boolean;
+  setIsCameraMoving: (moving: boolean) => void;
   editTexture: boolean;
   setEditTexture: (b?: boolean) => void;
   uploadedModelUrl: string | null;
@@ -128,6 +143,8 @@ export const useViewer = create<ViewerState>()(
         set((s) => ({
           showTransformControls: b !== undefined ? b : !s.showTransformControls,
         })),
+      isCameraMoving: false,
+      setIsCameraMoving: (moving) => set({ isCameraMoving: moving }),
       editTexture: false,
       setEditTexture: (b) =>
         set((s) => ({ editTexture: b !== undefined ? b : !s.editTexture })),

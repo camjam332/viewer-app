@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useThree } from "@react-three/fiber";
 import { SparkRenderer } from "@sparkjsdev/spark";
+import { useSpark } from "../../state/sparkState";
 
 /**
  * Mounts a single SparkRenderer for the whole scene.
@@ -27,16 +28,17 @@ import { SparkRenderer } from "@sparkjsdev/spark";
  */
 export const SparkScene = () => {
   const gl = useThree((s) => s.gl);
-  const [spark, setSpark] = useState<SparkRenderer | null>(null);
+  const setRenderer = useSpark((s) => s.setRenderer);
+  const renderer = useSpark((s) => s.renderer);
 
   useEffect(() => {
     const instance = new SparkRenderer({ renderer: gl });
-    setSpark(instance);
+    setRenderer(instance);
     return () => {
       instance.dispose();
     };
   }, [gl]);
 
-  if (!spark) return null;
-  return <primitive object={spark} />;
+  if (!renderer) return null;
+  return <primitive object={renderer} />;
 };
