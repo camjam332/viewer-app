@@ -53,6 +53,12 @@ const models: ModelOption[] = [
     splatViewMode: "interior",
   },
   {
+    modelUrl: "/models/fountain_photo.spz",
+    name: "Fountain (Splat)",
+    kind: "splat",
+    splatViewMode: "interior",
+  },
+  {
     modelUrl: "https://sparkjs.dev/assets/splats/butterfly.spz",
     name: "Butterfly (Splat)",
     kind: "splat",

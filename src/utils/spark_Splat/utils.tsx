@@ -407,7 +407,12 @@ export function handleSparkSplatClick(
 // ---------------------------------------------------------------------
 
 export type FloaterAnalysis = {
-  scores: Float32Array;
+  // Connected component size / total splat count, per splat - see
+  // floaterDetection.worker.ts for why this replaced local-density
+  // scoring. A splat in the scene's dominant mass is close to 1.0; a
+  // splat in a small, disconnected floater cluster is close to
+  // (cluster size / total), a small number.
+  componentSizeFractions: Float32Array;
   opacities: Float32Array;
 };
 
@@ -433,15 +438,15 @@ function getFloaterWorker(): Worker {
   worker.onmessage = (
     e: MessageEvent<{
       requestId: number;
-      scores: Float32Array;
+      componentSizeFractions: Float32Array;
       opacities: Float32Array;
     }>,
   ) => {
-    const { requestId, scores, opacities } = e.data;
+    const { requestId, componentSizeFractions, opacities } = e.data;
     const pending = pendingFloaterRequests.get(requestId);
     if (!pending) return; // already settled/abandoned - safe to ignore
     pendingFloaterRequests.delete(requestId);
-    pending.resolve({ scores, opacities });
+    pending.resolve({ componentSizeFractions, opacities });
   };
 
   worker.onerror = (err) => {
@@ -497,7 +502,21 @@ export function revertSparkFloaterAnalysis(
 export function analyzeSparkSplatFloaters(
   splatMesh: SplatMesh,
   centers: Float32Array,
-  k = 8,
+  // Candidate neighbors checked per splat when building the proximity
+  // graph in floaterDetection.worker.ts - bumped up from the original
+  // density-score default (8) since under-connecting here has a real
+  // failure mode: a genuinely continuous structure (a thin wire, an
+  // edge) could get split into multiple small components purely because
+  // too few candidates were checked, and get wrongly treated as a
+  // floater. An unverified starting point, not a validated number.
+  k = 12,
+  // How generous the per-connection local radius is - see
+  // floaterDetection.worker.ts for the full reasoning. User-adjustable
+  // (FloaterCleanupPanel.tsx's secondary control) rather than fixed,
+  // since a dense object scan and a sparse room capture needed visibly
+  // different values during actual testing - no single default held up
+  // across both.
+  radiusMultiplier = 3.0,
 ): Promise<FloaterAnalysis> {
   // When LOD is active, Spark's actual GPU render path swaps to
   // packedSplats.lodSplats - a separate PackedSplats instance built by
@@ -518,7 +537,10 @@ export function analyzeSparkSplatFloaters(
     const packedSplats = splatMesh.packedSplats;
     const numSplats = packedSplats?.numSplats ?? 0;
     if (!packedSplats || numSplats === 0 || centers.length === 0) {
-      resolve({ scores: new Float32Array(0), opacities: new Float32Array(0) });
+      resolve({
+        componentSizeFractions: new Float32Array(0),
+        opacities: new Float32Array(0),
+      });
       return;
     }
 
@@ -541,6 +563,7 @@ export function analyzeSparkSplatFloaters(
         numSplats,
         splatEncoding: packedSplats.splatEncoding,
         k,
+        radiusMultiplier,
       },
       [centersCopy.buffer, packedArrayCopy.buffer],
     );
@@ -548,19 +571,13 @@ export function analyzeSparkSplatFloaters(
 }
 
 /**
- * Applies a threshold to already-computed floater scores - the cheap,
- * instant half of the feature, meant to run on every slider tick.
- * Splats scoring above the threshold get opacity 0 (hidden); everything
- * else is restored to its real, original opacity. Iterates every splat
- * unconditionally rather than tracking a delta from the previous
- * threshold - simpler to reason about, and fine for a debounced,
- * user-driven slider rather than something firing every frame. Returns
- * the hidden count for UI feedback ("1,204 splats hidden").
- *
- * Rewrites the full splat entry via setSplat (opacity can't be set in
- * isolation), but only ever touches opacity - center/scale/rotation/
- * color are read back from getSplat() itself, never cached separately,
- * since nothing else in this feature ever modifies them.
+ * Applies a minimum-component-size threshold to already-computed
+ * connected-component data - the cheap, instant half of the feature,
+ * meant to run on every slider tick. threshold is a fraction of total
+ * splat count (0-1): any splat whose connected component is SMALLER than
+ * this fraction of the whole scene gets hidden - the inverse comparison
+ * from the old density-score version (there, higher score meant more
+ * likely floater; here, smaller component fraction does).
  */
 export function applySparkFloaterThreshold(
   splatMesh: SplatMesh,
@@ -570,11 +587,11 @@ export function applySparkFloaterThreshold(
   const packedSplats = splatMesh.packedSplats;
   if (!packedSplats) return 0;
 
-  const { scores, opacities } = analysis;
+  const { componentSizeFractions, opacities } = analysis;
   let hiddenCount = 0;
 
-  for (let i = 0; i < scores.length; i++) {
-    const shouldHide = scores[i] > threshold;
+  for (let i = 0; i < componentSizeFractions.length; i++) {
+    const shouldHide = componentSizeFractions[i] < threshold;
     if (shouldHide) hiddenCount++;
 
     const current = packedSplats.getSplat(i);

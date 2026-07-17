@@ -49,14 +49,14 @@ import { registerRenderer } from "./utils/texturePaint";
 import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SparkScene } from "./components/spark_Splat/SparkScene";
 import { SparkSplat } from "./components/spark_Splat/SparkSplat";
-import type { PackedSplats, SplatMesh } from "@sparkjsdev/spark";
+import type { SplatMesh } from "@sparkjsdev/spark";
 import {
   handleSparkSplatLoad,
   handleSparkSplatClick,
   analyzeSparkSplatFloaters,
   applySparkFloaterThreshold,
-  type FloaterAnalysis,
   revertSparkFloaterAnalysis,
+  type FloaterAnalysis,
 } from "./utils/spark_Splat/utils";
 import { FloaterCleanupPanel } from "./ui/splat/FloaterCleanupPanel";
 import { ToastNotification } from "./ui/ToastNotification";
@@ -71,11 +71,22 @@ import { ToastNotification } from "./ui/ToastNotification";
 // as they always should have.
 const GIZMO_MARGIN: [number, number] = [80, 80];
 const GIZMO_AXIS_COLORS: [string, string, string] = ["red", "green", "blue"];
-// A moderate starting point (score 1.0 = typical local density, higher
-// is sparser) - untested against a real, noisy capture, so treat this as
-// a reasonable first guess rather than a validated default. Likely needs
-// tuning once tried against real data.
-const DEFAULT_FLOATER_THRESHOLD = 1.5;
+// A moderate starting point (component size / total splat count) - real
+// floater clusters should be a tiny fraction of the whole scene, while
+// the dominant mass should sit close to 1.0. Untested against a real,
+// noisy capture, so treat this as a reasonable first guess rather than
+// a validated default. Likely needs tuning once tried against real
+// data - see floaterDetection.worker.ts's own comments for the same
+// caveat on the connectivity radius this depends on.
+const DEFAULT_FLOATER_THRESHOLD = 0.01;
+// How generous the connectivity graph's per-connection local radius is -
+// see floaterDetection.worker.ts for the full reasoning. Confirmed via
+// real testing that this genuinely needs to vary by scene (a dense
+// object scan and a sparse room capture behaved differently at the same
+// value), which is the whole reason this is exposed as a control rather
+// than left as a single fixed constant - this default is just a starting
+// point for that control, not a validated number on its own.
+const DEFAULT_CONNECTIVITY_MULTIPLIER = 3.0;
 
 type CameraFocusParams = {
   cameraControlsRef: RefObject<CameraControls | null>;
@@ -183,6 +194,13 @@ function App() {
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
   const tool = useViewer((s) => s.tool);
+  // Same mechanism TextureCanvas.tsx already uses for its own imperative,
+  // outside-of-React mutations - applySparkFloaterThreshold directly
+  // mutates the live Three.js object (setSplat + needsUpdate), which
+  // React/R3F has no way to know happened on its own. Without this, the
+  // change is only visible once something else happens to trigger a new
+  // frame - orbiting the camera, for instance.
+  const requestRender = useViewer((s) => s.requestRender);
 
   const focused = annotations.find((a) => a.id === focusedId) ?? null;
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
@@ -229,6 +247,15 @@ function App() {
     DEFAULT_FLOATER_THRESHOLD,
   );
   const [hiddenFloaterCount, setHiddenFloaterCount] = useState(0);
+  // Secondary control, not a live slider like floaterThreshold - changing
+  // this requires a genuine re-run of the worker's k-d tree/union-find
+  // pass (it changes how the connectivity graph itself gets built, not
+  // just how already-computed sizes get filtered), so it only takes
+  // effect the next time Analyze/Re-analyze is actually clicked, not on
+  // every drag tick.
+  const [connectivityMultiplier, setConnectivityMultiplier] = useState(
+    DEFAULT_CONNECTIVITY_MULTIPLIER,
+  );
 
   const [splatTransformDisplay, setSplatTransformDisplay] = useState<{
     position: [number, number, number];
@@ -360,6 +387,7 @@ function App() {
     setIsAnalyzingFloaters(false);
     setFloaterThreshold(DEFAULT_FLOATER_THRESHOLD);
     setHiddenFloaterCount(0);
+    setConnectivityMultiplier(DEFAULT_CONNECTIVITY_MULTIPLIER);
     setSplatTransformDisplay(null);
     setSplatProgress(null);
   }, [effectiveModelUrl]);
@@ -448,7 +476,26 @@ function App() {
     const targetSplat = splatRef.current;
     setIsAnalyzingFloaters(true);
     try {
-      const result = await analyzeSparkSplatFloaters(targetSplat, splatCenters);
+      // If a previous analysis already hid some splats (opacity 0 in the
+      // live data) and this is a re-analyze, restoring first is required,
+      // not optional - analyzeSparkSplatFloaters reads opacity straight
+      // from the live packed data as its "original" baseline for the new
+      // pass. Without this, any splat already hidden would have that
+      // baseline permanently captured as 0, making it impossible to ever
+      // un-hide via a later threshold change, regardless of what the new
+      // analysis actually says about it. Only relevant now that
+      // Re-analyze makes this reachable at all - the very first Analyze
+      // on a freshly-loaded splat has nothing to restore.
+      if (floaterAnalysis) {
+        revertSparkFloaterAnalysis(targetSplat, floaterAnalysis);
+      }
+
+      const result = await analyzeSparkSplatFloaters(
+        targetSplat,
+        splatCenters,
+        undefined, // k - keep its own default, only the multiplier is user-adjustable here
+        connectivityMultiplier,
+      );
       // Staleness guard, same reasoning as handleSparkSplatLoad's - if
       // the user switched models while this was running, applying the
       // result now would silently corrupt whatever's actually loaded.
@@ -460,12 +507,19 @@ function App() {
         floaterThreshold,
       );
       setHiddenFloaterCount(hidden);
+      requestRender();
     } catch (error) {
       console.error("Floater analysis failed:", error);
     } finally {
       setIsAnalyzingFloaters(false);
     }
-  }, [splatCenters, floaterThreshold]);
+  }, [
+    splatCenters,
+    floaterThreshold,
+    connectivityMultiplier,
+    floaterAnalysis,
+    requestRender,
+  ]);
 
   const handleFloaterThresholdChange = useCallback(
     (threshold: number) => {
@@ -477,20 +531,25 @@ function App() {
         threshold,
       );
       setHiddenFloaterCount(hidden);
+      requestRender();
     },
-    [floaterAnalysis],
+    [floaterAnalysis, requestRender],
   );
 
+  // Reverts opacity to original and re-enables LOD (see
+  // revertSparkFloaterAnalysis's own comments), then resets local state
+  // back to the pre-analysis view - analysisReady={floaterAnalysis !==
+  // null} in the panel means clearing this is what actually brings the
+  // "Analyze for Floaters" button back, not just a visual reset.
   const handleRevertFloaters = useCallback(() => {
-    if (!splatRef.current) return;
-
-    // Revert the physical mesh data and re-enable LOD
-    revertSparkFloaterAnalysis(splatRef.current, floaterAnalysis);
-
-    // Clear your React state trackers
+    if (splatRef.current) {
+      revertSparkFloaterAnalysis(splatRef.current, floaterAnalysis);
+      requestRender();
+    }
     setFloaterAnalysis(null);
+    setFloaterThreshold(DEFAULT_FLOATER_THRESHOLD);
     setHiddenFloaterCount(0);
-  }, [floaterAnalysis]);
+  }, [floaterAnalysis, requestRender]);
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -533,11 +592,13 @@ function App() {
             isAnalyzing={isAnalyzingFloaters}
             analysisReady={floaterAnalysis !== null}
             hiddenCount={hiddenFloaterCount}
-            totalCount={floaterAnalysis?.scores.length ?? 0}
+            totalCount={floaterAnalysis?.componentSizeFractions.length ?? 0}
             threshold={floaterThreshold}
             onAnalyze={handleAnalyzeFloaters}
             onThresholdChange={handleFloaterThresholdChange}
             onRevert={handleRevertFloaters}
+            connectivityMultiplier={connectivityMultiplier}
+            onConnectivityMultiplierChange={setConnectivityMultiplier}
           />
         )}
       </div>
