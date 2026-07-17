@@ -276,10 +276,6 @@ export function handleSparkSplatLoad(
       ? uniformScales[mid]
       : (uniformScales[mid - 1] + uniformScales[mid]) / 2;
 
-  console.log(
-    `Your scene's Uniform Median Scale: ${uniformMedianScale * 1000}`,
-  );
-
   const markerScale = uniformMedianScale * 1000;
 
   setMarkerScale(markerScale);
@@ -400,6 +396,7 @@ export function handleSparkSplatClick(
   const { tool, addPoint, addAnnotation, effectiveModelUrl, splatCentersRef } =
     deps;
 
+  event.stopPropagation();
   if (tool === "measure") {
     const point = event.point.clone();
     addPoint(point);

@@ -234,32 +234,43 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
               Export Model
             </button>
           )}
-          {points.length > 0 &&
-            selectedModel &&
-            (isSplatModel ||
-              selectedModel.name.toLowerCase().includes("scan")) && (
-              <select
-                onChange={(e) =>
-                  setMeasurementMode(e.target.value as "linear" | "geodesic")
-                }
-                className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+          {points.length > 0 && selectedModel && isSplatModel ? (
+            <select
+              onChange={(e) =>
+                setMeasurementMode(e.target.value as "linear" | "geodesic")
+              }
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            >
+              <option
+                value="linear"
+                className="rounded bg-black/70 text-white px-2 py-1"
               >
+                Linear
+              </option>
+              {buildingGraph ? null : (
                 <option
-                  value="linear"
+                  value="geodesic"
                   className="rounded bg-black/70 text-white px-2 py-1"
                 >
-                  Linear
+                  Geodesic
                 </option>
-                {buildingGraph ? null : (
-                  <option
-                    value="geodesic"
-                    className="rounded bg-black/70 text-white px-2 py-1"
-                  >
-                    Geodesic
-                  </option>
-                )}
-              </select>
-            )}
+              )}
+            </select>
+          ) : (
+            <select
+              onChange={(e) =>
+                setMeasurementMode(e.target.value as "linear" | "geodesic")
+              }
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+            >
+              <option
+                value="linear"
+                className="rounded bg-black/70 text-white px-2 py-1"
+              >
+                Linear
+              </option>
+            </select>
+          )}
           {points.length > 0 && (
             <button
               className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
