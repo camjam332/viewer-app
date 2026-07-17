@@ -63,6 +63,16 @@ import { ToastNotification } from "./ui/ToastNotification";
 import { CameraFocus } from "./components/CameraFocus";
 import { FrameOnLoad } from "./components/FrameOnLoad";
 import { InvalidateBridge } from "./components/InvalidateBridge";
+import { ModelSwitchConfirmDialog } from "./ui/ModelSwitchConfirmDialog";
+
+// What a requested model change actually is, regardless of which UI path
+// triggered it (picking from the list vs. uploading a new file) - kept
+// as a single shape so requestModelChange/applyModelChange don't need to
+// branch on "how did we get called", only on "is this an upload".
+type PendingModelChange = {
+  url: string;
+  isUpload: boolean;
+};
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
 // written directly in JSX creates a brand-new array on every single App
@@ -174,6 +184,8 @@ function App() {
 
   const resetCamera = useViewer((s) => s.resetCamera);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
+  const setModelUrl = useViewer((s) => s.setModelUrl);
+  const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
   const splatRef = useRef<SplatMesh | null>(null);
@@ -182,6 +194,7 @@ function App() {
   const meshDeformation = useViewer((s) => s.meshDeformation);
   const clearPoints = useMeasurement((s) => s.clearPoints);
   const addPoint = useMeasurement((s) => s.addPoint);
+  const points = useMeasurement((s) => s.points);
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
   const tool = useViewer((s) => s.tool);
@@ -250,6 +263,13 @@ function App() {
 
   const [splatTransformDisplay, setSplatTransformDisplay] =
     useState<SplatTransformSnapshot | null>(null);
+  // True once the user has actually dragged the gizmo or edited a
+  // position/rotation field via handleSplatPositionEdit/
+  // handleSplatRotationEdit for the currently-loaded splat - not the same
+  // as showTransformControls being on, which just means the panel/gizmo
+  // is visible. This is what requestModelChange checks: showing the
+  // gizmo costs nothing to lose, an actual correction does.
+  const [hasManualTransformEdit, setHasManualTransformEdit] = useState(false);
   // The transform captured at the moment splatCenters was last actually
   // extracted (initial load, or a manual "Refresh Measurement Data")—
   // compared against the live splatTransformDisplay to detect whether
@@ -316,6 +336,7 @@ function App() {
       else obj.position.z = value;
       obj.updateMatrixWorld(true);
       readSplatTransform();
+      setHasManualTransformEdit(true);
     },
     [readSplatTransform],
   );
@@ -330,6 +351,7 @@ function App() {
       else obj.rotation.z = rad;
       obj.updateMatrixWorld(true);
       readSplatTransform();
+      setHasManualTransformEdit(true);
     },
     [readSplatTransform],
   );
@@ -379,6 +401,67 @@ function App() {
   }, []);
 
   const handleField = useCallback((f: ModelFieldInfo) => setModelField(f), []);
+
+  // The actual mechanics of switching, split out from requestModelChange
+  // so both the "no reasons, just do it" fast path and the dialog's
+  // onConfirm can share one implementation.
+  const applyModelChange = useCallback(
+    (change: PendingModelChange) => {
+      if (change.isUpload) {
+        setUploadedModelUrl(change.url);
+      } else {
+        setUploadedModelUrl(null);
+        setModelUrl(change.url);
+      }
+    },
+    [setUploadedModelUrl, setModelUrl],
+  );
+
+  const [pendingModelChange, setPendingModelChange] = useState<{
+    change: PendingModelChange;
+    reasons: string[];
+  } | null>(null);
+
+  // Gate in front of applyModelChange - the only thing Toolbar/ModelPicker
+  // should call to switch models. Computes what's actually about to be
+  // silently discarded (mirrors the four cases ModelSwitchConfirmDialog's
+  // own docstring names) and only interrupts the switch if there's
+  // something real to warn about.
+  const requestModelChange = useCallback(
+    (change: PendingModelChange) => {
+      const reasons: string[] = [];
+      if (isSplatModel && hiddenFloaterCount > 0) {
+        reasons.push("Floater cleanup results");
+      }
+      if (isSplatModel && hasManualTransformEdit) {
+        reasons.push("Manual orientation correction");
+      }
+      if (points.length > 0) {
+        reasons.push("In-progress measurement");
+      }
+      if (
+        uploadedModelUrl &&
+        annotations.some((a) => a.modelUrl === uploadedModelUrl)
+      ) {
+        reasons.push("Annotations on the uploaded model");
+      }
+
+      if (reasons.length === 0) {
+        applyModelChange(change);
+        return;
+      }
+      setPendingModelChange({ change, reasons });
+    },
+    [
+      isSplatModel,
+      hiddenFloaterCount,
+      hasManualTransformEdit,
+      points,
+      uploadedModelUrl,
+      annotations,
+      applyModelChange,
+    ],
+  );
 
   const handleRetry = useCallback(() => {
     // useGLTF/useLoader cache rejected loads too, so just resetting the
@@ -461,6 +544,7 @@ function App() {
     setSplatCentersExtractedAtTransform(null);
     setSplatProgress(null);
     setIsPreparingSplatData(false);
+    setHasManualTransformEdit(false);
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -657,7 +741,7 @@ function App() {
         className="fixed top-2 left-2 right-2 z-10 flex flex-col items-stretch gap-2
              max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
       >
-        <Toolbar modelRef={modelRef} />
+        <Toolbar modelRef={modelRef} requestModelChange={requestModelChange} />
         {!isSplatModel && (
           <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
         )}
@@ -692,6 +776,16 @@ function App() {
           />
         )}
       </div>
+      {pendingModelChange && (
+        <ModelSwitchConfirmDialog
+          reasons={pendingModelChange.reasons}
+          onCancel={() => setPendingModelChange(null)}
+          onConfirm={() => {
+            applyModelChange(pendingModelChange.change);
+            setPendingModelChange(null);
+          }}
+        />
+      )}
       {errorMessage && (
         <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/60 p-4">
           <div className="w-full max-w-md rounded-lg bg-black/80 p-4 text-center text-white backdrop-blur break-words">
@@ -728,20 +822,12 @@ function App() {
           backgroundColor: "black",
         }}
         camera={{ near: 0.001, far: 1000 }}
-        // R3F defaults antialias to true (unlike vanilla Three.js's own
-        // false default) - Spark's own source explicitly documents this
-        // as a meaningful performance cost specific to Gaussian splat
-        // rendering with no visual benefit for it, confirmed as a real
-        // GPU-side bottleneck by a performance trace on this app.
         gl={{ antialias: isSplatModel ? false : true }}
         frameloop={isSplatModel ? "always" : "demand"}
         dpr={[1, 2]}
       >
         <Stats />
-        <GizmoHelper
-          alignment="bottom-right" // widget alignment within scene
-          margin={GIZMO_MARGIN} // widget margins (X, Y)
-        >
+        <GizmoHelper alignment="bottom-right" margin={GIZMO_MARGIN}>
           <GizmoViewport axisColors={GIZMO_AXIS_COLORS} labelColor="white" />
         </GizmoHelper>
         <CameraControls ref={cameraControlsRef} makeDefault />
@@ -764,7 +850,7 @@ function App() {
         )}
 
         <ErrorBoundary
-          fallback={null} // or a fallback mesh, e.g. <group /> or a placeholder <mesh>
+          fallback={null}
           onError={(error) => {
             setErrorMessage((error as Error).message);
           }}
@@ -786,7 +872,10 @@ function App() {
               <TransformControls
                 object={activeObjectRef as RefObject<Group>}
                 mode={transformControlsMode}
-                onObjectChange={() => readSplatTransform()}
+                onObjectChange={() => {
+                  readSplatTransform();
+                  if (isSplatModel) setHasManualTransformEdit(true);
+                }}
               />
             )}
             <CameraFocus

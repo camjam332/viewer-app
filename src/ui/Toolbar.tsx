@@ -9,18 +9,22 @@ import type { Group } from "three";
 
 type ToolbarParams = {
   modelRef: RefObject<Group | null>;
+  // Gate in front of switching models - decides whether the switch needs
+  // confirmation (floater cleanup, a manual orientation edit, an
+  // in-progress measurement, or uploaded-model annotations would be
+  // discarded) and only then applies it. Toolbar no longer writes
+  // modelUrl/uploadedModelUrl to the store directly for this reason.
+  requestModelChange: (change: { url: string; isUpload: boolean }) => void;
 };
 
-export const Toolbar = ({ modelRef }: ToolbarParams) => {
+export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
   const setTool = useViewer((s) => s.setTool);
-  const setModelUrl = useViewer((s) => s.setModelUrl);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
   const setEditTexture = useViewer((s) => s.setEditTexture);
   const setShowAero = useViewer((s) => s.setShowAero);
   const setFocusedId = useViewer((s) => s.setFocusedId);
   const setResetCamera = useViewer((s) => s.setResetCamera);
   const setMeasurementMode = useMeasurement((s) => s.setMeasurementMode);
-  const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
   const setConfig = useAero((s) => s.setConfig);
   const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
   const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
@@ -100,12 +104,9 @@ export const Toolbar = ({ modelRef }: ToolbarParams) => {
           <ModelPicker
             models={models}
             modelUrl={modelUrl}
-            setModelUrl={(url) => {
-              setUploadedModelUrl(null);
-              setModelUrl(url);
-            }}
+            setModelUrl={(url) => requestModelChange({ url, isUpload: false })}
             uploadedModelUrl={uploadedModelUrl}
-            onUploadModel={setUploadedModelUrl}
+            onUploadModel={(url) => requestModelChange({ url, isUpload: true })}
           />
           {!isSplatModel && (
             <div className="flex items-center gap-2">
