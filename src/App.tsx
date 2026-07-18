@@ -10,6 +10,7 @@ import {
   GizmoViewport,
   Stats,
 } from "@react-three/drei";
+import { SparkFlyControls } from "./components/SparkFlyControls";
 import {
   Suspense,
   useCallback,
@@ -192,6 +193,7 @@ function App() {
   const uploadedSplatFileType = useViewer((s) => s.uploadedSplatFileType);
   const setModelUrl = useViewer((s) => s.setModelUrl);
   const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
+  const cameraControlMode = useViewer((s) => s.cameraControlMode);
   const cameraControlsRef = useRef<CameraControls | null>(null);
   const modelRef = useRef<Group | null>(null);
   const splatRef = useRef<SplatMesh | null>(null);
@@ -204,6 +206,7 @@ function App() {
   const addAnnotation = useViewer((s) => s.addAnnotation);
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
   const tool = useViewer((s) => s.tool);
+  const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
   // Same mechanism TextureCanvas.tsx already uses for its own imperative,
   // outside-of-React mutations - applySparkFloaterThreshold directly
   // mutates the live Three.js object (setSplat + needsUpdate), which
@@ -558,6 +561,7 @@ function App() {
     setSplatProgress(null);
     setIsPreparingSplatData(false);
     setHasManualTransformEdit(false);
+    setCameraControlMode("orbit");
   }, [effectiveModelUrl]);
 
   // Reads the transform once a splat finishes loading (and, for interior
@@ -842,16 +846,26 @@ function App() {
         }}
         camera={{ near: 0.001, far: 1000 }}
         gl={{ antialias: isSplatModel ? false : true }}
-        frameloop={isSplatModel ? "always" : "demand"}
+        // FlyControls needs a per-frame update loop to track held-down
+        // WASD/mouse-look input, unlike CameraControls which only needs a
+        // render when something actually changes ("demand").
+        frameloop={
+          isSplatModel || cameraControlMode === "fly" ? "always" : "demand"
+        }
         dpr={[1, 2]}
       >
         <Stats />
         <GizmoHelper alignment="bottom-right" margin={GIZMO_MARGIN}>
           <GizmoViewport axisColors={GIZMO_AXIS_COLORS} labelColor="white" />
         </GizmoHelper>
-        <CameraControls ref={cameraControlsRef} makeDefault />
+        {cameraControlMode === "orbit" && (
+          <CameraControls ref={cameraControlsRef} makeDefault />
+        )}
+        <SparkFlyControls active={cameraControlMode === "fly"} />
         <InvalidateBridge />
-        <CameraActivityBridge cameraControlsRef={cameraControlsRef} />
+        {cameraControlMode === "orbit" && (
+          <CameraActivityBridge cameraControlsRef={cameraControlsRef} />
+        )}
 
         {isSplatModel && effectiveModelUrl && (
           <>
@@ -861,7 +875,9 @@ function App() {
               ref={splatRef}
               url={effectiveModelUrl}
               fileType={
-                uploadedModelUrl ? (uploadedSplatFileType ?? undefined) : undefined
+                uploadedModelUrl
+                  ? (uploadedSplatFileType ?? undefined)
+                  : undefined
               }
               onLoad={handleSplatLoad}
               onError={handleSplatError}
@@ -900,13 +916,15 @@ function App() {
                 }}
               />
             )}
-            <CameraFocus
-              resetCallback={() => setResetCamera(false)}
-              cameraControlsRef={cameraControlsRef}
-              focused={focused}
-              focusedId={focusedId}
-              resetCameraPos={resetCamera}
-            />
+            {cameraControlMode === "orbit" && (
+              <CameraFocus
+                resetCallback={() => setResetCamera(false)}
+                cameraControlsRef={cameraControlsRef}
+                focused={focused}
+                focusedId={focusedId}
+                resetCameraPos={resetCamera}
+              />
+            )}
             <Annotations />
             <Measurement
               modelRef={modelRef}
@@ -916,11 +934,13 @@ function App() {
             />
             {!isSplatModel && (
               <>
-                <FrameOnLoad
-                  controlsRef={cameraControlsRef}
-                  modelRef={modelRef}
-                  modelUrl={effectiveModelUrl}
-                />
+                {cameraControlMode === "orbit" && (
+                  <FrameOnLoad
+                    controlsRef={cameraControlsRef}
+                    modelRef={modelRef}
+                    modelUrl={effectiveModelUrl}
+                  />
+                )}
                 <Environment preset="city" />
               </>
             )}

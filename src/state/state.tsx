@@ -69,6 +69,8 @@ const models: ModelOption[] = [
 
 export type Tool = "orbit" | "measure" | "annotate";
 
+export type CameraControlMode = "orbit" | "fly";
+
 export type Annotation = {
   id: string;
   position: [number, number, number];
@@ -136,6 +138,12 @@ type ViewerState = {
   setShowAero: (b?: boolean) => void;
   requestRender: () => void;
   setRequestRender: (fn: () => void) => void;
+  // Orbit-style CameraControls is the default; fly mode swaps in drei's
+  // FlyControls for free WASD+mouse-look navigation. Not persisted -
+  // camera-controls-specific features (focus-on-annotation, reset,
+  // frame-on-load) only work in orbit mode, see App.tsx's guards.
+  cameraControlMode: CameraControlMode;
+  setCameraControlMode: (m: CameraControlMode) => void;
 };
 
 export const useViewer = create<ViewerState>()(
@@ -232,6 +240,8 @@ export const useViewer = create<ViewerState>()(
         set((s) => ({ showAero: b !== undefined ? b : !s.showAero })),
       requestRender: () => {},
       setRequestRender: (fn) => set({ requestRender: fn }),
+      cameraControlMode: "orbit",
+      setCameraControlMode: (m) => set({ cameraControlMode: m }),
     }),
     {
       name: "viewer-storage",
