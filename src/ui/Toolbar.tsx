@@ -6,6 +6,7 @@ import { ControlSlider } from "./ControlSlider";
 import { useAero } from "../state/aeroState";
 import { handleExport } from "../utils/model_utils";
 import type { Group } from "three";
+import type { UploadKind } from "../utils/uploadFileType";
 
 type ToolbarParams = {
   modelRef: RefObject<Group | null>;
@@ -14,10 +15,19 @@ type ToolbarParams = {
   // in-progress measurement, or uploaded-model annotations would be
   // discarded) and only then applies it. Toolbar no longer writes
   // modelUrl/uploadedModelUrl to the store directly for this reason.
-  requestModelChange: (change: { url: string; isUpload: boolean }) => void;
+  requestModelChange: (change: {
+    url: string;
+    isUpload: boolean;
+    upload?: UploadKind;
+  }) => void;
+  onUnsupportedFile?: (filename: string) => void;
 };
 
-export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
+export const Toolbar = ({
+  modelRef,
+  requestModelChange,
+  onUnsupportedFile,
+}: ToolbarParams) => {
   const setTool = useViewer((s) => s.setTool);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
   const setEditTexture = useViewer((s) => s.setEditTexture);
@@ -42,12 +52,18 @@ export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
   const surfaceDistance = useMeasurement((s) => s.surfaceDistance);
   const buildingGraph = useMeasurement((s) => s.buildingGraph);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
+  const uploadedModelKind = useViewer((s) => s.uploadedModelKind);
   const config = useAero((s) => s.config);
   const showTransformControls = useViewer((s) => s.showTransformControls);
   const meshDeformation = useViewer((s) => s.meshDeformation);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
-  const isSplatModel = selectedModel?.kind === "splat";
+  // Mirrors App.tsx's isSplatModel derivation - an uploaded file has no
+  // entry in `models` to look `kind` up from, so its kind has to come from
+  // uploadedModelKind (captured at upload time) instead.
+  const isSplatModel = uploadedModelUrl
+    ? uploadedModelKind === "splat"
+    : selectedModel?.kind === "splat";
 
   const [isOpen, setIsOpen] = useState(false);
 
@@ -106,7 +122,10 @@ export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
             modelUrl={modelUrl}
             setModelUrl={(url) => requestModelChange({ url, isUpload: false })}
             uploadedModelUrl={uploadedModelUrl}
-            onUploadModel={(url) => requestModelChange({ url, isUpload: true })}
+            onUploadModel={(url, upload) =>
+              requestModelChange({ url, isUpload: true, upload })
+            }
+            onUnsupportedFile={onUnsupportedFile}
           />
           {!isSplatModel && (
             <div className="flex items-center gap-2">
@@ -235,7 +254,7 @@ export const Toolbar = ({ modelRef, requestModelChange }: ToolbarParams) => {
               Export Model
             </button>
           )}
-          {points.length > 0 && selectedModel && isSplatModel ? (
+          {points.length > 0 && isSplatModel ? (
             <select
               onChange={(e) =>
                 setMeasurementMode(e.target.value as "linear" | "geodesic")

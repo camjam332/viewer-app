@@ -48,6 +48,7 @@ import { MeshDeformation } from "./components/Mesh_Deform/MeshDeformation";
 import { SparkScene } from "./components/spark_Splat/SparkScene";
 import { SparkSplat } from "./components/spark_Splat/SparkSplat";
 import type { SplatMesh } from "@sparkjsdev/spark";
+import type { UploadKind } from "./utils/uploadFileType";
 import {
   handleSparkSplatLoad,
   handleSparkSplatClick,
@@ -72,6 +73,9 @@ import { ModelSwitchConfirmDialog } from "./ui/ModelSwitchConfirmDialog";
 type PendingModelChange = {
   url: string;
   isUpload: boolean;
+  // Only set (and only meaningful) when isUpload is true - the picker's
+  // own models already carry `kind` on their ModelOption entry.
+  upload?: UploadKind;
 };
 
 // Module-level, not inline in JSX - a plain [80, 80]/["red","green","blue"]
@@ -184,6 +188,8 @@ function App() {
 
   const resetCamera = useViewer((s) => s.resetCamera);
   const uploadedModelUrl = useViewer((s) => s.uploadedModelUrl);
+  const uploadedModelKind = useViewer((s) => s.uploadedModelKind);
+  const uploadedSplatFileType = useViewer((s) => s.uploadedSplatFileType);
   const setModelUrl = useViewer((s) => s.setModelUrl);
   const setUploadedModelUrl = useViewer((s) => s.setUploadedModelUrl);
   const cameraControlsRef = useRef<CameraControls | null>(null);
@@ -210,7 +216,9 @@ function App() {
   const effectiveModelUrl = uploadedModelUrl ?? modelUrl;
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
-  const isSplatModel = !uploadedModelUrl && selectedModel?.kind === "splat";
+  const isSplatModel = uploadedModelUrl
+    ? uploadedModelKind === "splat"
+    : selectedModel?.kind === "splat";
   const activeObjectRef = isSplatModel ? splatRef : modelRef;
 
   const [modelField, setModelField] = useState<ModelFieldInfo | null>(null);
@@ -408,7 +416,12 @@ function App() {
   const applyModelChange = useCallback(
     (change: PendingModelChange) => {
       if (change.isUpload) {
-        setUploadedModelUrl(change.url);
+        const upload = change.upload;
+        setUploadedModelUrl(
+          change.url,
+          upload?.kind ?? null,
+          upload?.kind === "splat" ? upload.fileType : null,
+        );
       } else {
         setUploadedModelUrl(null);
         setModelUrl(change.url);
@@ -741,7 +754,13 @@ function App() {
         className="fixed top-2 left-2 right-2 z-10 flex flex-col items-stretch gap-2
              max-h-[calc(100vh-1rem)] md:top-4 md:left-4 md:right-auto md:w-auto md:max-h-[calc(100vh-2rem)]"
       >
-        <Toolbar modelRef={modelRef} requestModelChange={requestModelChange} />
+        <Toolbar
+          modelRef={modelRef}
+          requestModelChange={requestModelChange}
+          onUnsupportedFile={(filename) =>
+            setErrorMessage(`Unsupported file type: ${filename}`)
+          }
+        />
         {!isSplatModel && (
           <TextureEdit modelRef={modelRef} modelUrl={effectiveModelUrl} />
         )}
@@ -841,6 +860,9 @@ function App() {
               key={`${effectiveModelUrl}-${retryToken}`}
               ref={splatRef}
               url={effectiveModelUrl}
+              fileType={
+                uploadedModelUrl ? (uploadedSplatFileType ?? undefined) : undefined
+              }
               onLoad={handleSplatLoad}
               onError={handleSplatError}
               onProgress={handleSplatProgress}

@@ -1,10 +1,15 @@
 import { useEffect, useState, type Ref } from "react";
 import type { ThreeEvent } from "@react-three/fiber";
-import { SplatMesh } from "@sparkjsdev/spark";
+import { SplatMesh, type SplatFileType } from "@sparkjsdev/spark";
 
 type SparkSplatParams = {
   ref?: Ref<SplatMesh> | null;
   url: string;
+  // Only needed for uploaded blob URLs, which carry no extension for
+  // Spark's own getSplatFileTypeFromPath to key off of, and no magic-byte
+  // signature for .splat/.ksplat specifically. Static asset URLs (the
+  // picker's own models) don't need this - Spark infers it from the path.
+  fileType?: SplatFileType;
   onLoad?: (mesh: SplatMesh) => void;
   onError?: (error: unknown) => void;
   // Reduces splat density based on distance/screen coverage - directly
@@ -50,6 +55,7 @@ type SparkSplatParams = {
 export const SparkSplat = ({
   ref,
   url,
+  fileType,
   onLoad,
   onError,
   onProgress,
@@ -78,6 +84,7 @@ export const SparkSplat = ({
     // on the base data being real.
     const instance = new SplatMesh({
       url,
+      fileType,
       lod,
       nonLod: lod ? true : undefined,
       onProgress,
@@ -98,7 +105,7 @@ export const SparkSplat = ({
       cancelled = true;
       instance.dispose();
     };
-  }, [url, lod, onLoad, onError, onProgress]);
+  }, [url, fileType, lod, onLoad, onError, onProgress]);
 
   if (!splat) return null;
 
