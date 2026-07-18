@@ -39,6 +39,7 @@ export const Toolbar = ({
   const setShowTransformControls = useViewer((s) => s.setShowTransformControls);
   const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
   const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
+  const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -56,6 +57,7 @@ export const Toolbar = ({
   const config = useAero((s) => s.config);
   const showTransformControls = useViewer((s) => s.showTransformControls);
   const meshDeformation = useViewer((s) => s.meshDeformation);
+  const cameraControlMode = useViewer((s) => s.cameraControlMode);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
   // Mirrors App.tsx's isSplatModel derivation - an uploaded file has no
@@ -237,15 +239,32 @@ export const Toolbar = ({
               />
             </div>
           )}
-          <button
-            className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
-            onClick={() => {
-              setFocusedId(null);
-              setResetCamera(true);
-            }}
-          >
-            Reset Camera
-          </button>
+          <div className="flex items-center gap-2">
+            <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+              Fly Controls
+            </label>
+            <input
+              type="checkbox"
+              checked={cameraControlMode === "fly"}
+              onChange={() =>
+                setCameraControlMode(
+                  cameraControlMode === "fly" ? "orbit" : "fly",
+                )
+              }
+              className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+            />
+          </div>
+          {cameraControlMode === "orbit" && (
+            <button
+              className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
+              onClick={() => {
+                setFocusedId(null);
+                setResetCamera(true);
+              }}
+            >
+              Reset Camera
+            </button>
+          )}
           {!isSplatModel && (
             <button
               className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"
