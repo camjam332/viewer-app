@@ -3,6 +3,7 @@ import { ChevronDown, Box } from "lucide-react";
 import { ModelUpload } from "./ModelUpload";
 import { useViewer } from "../state/state";
 import { useMeasurement } from "../state/measurementState";
+import type { UploadKind } from "../utils/uploadFileType";
 
 export type ModelOption = {
   modelUrl: string;
@@ -26,7 +27,8 @@ type ModelPickerProps = {
   modelUrl: string | null;
   setModelUrl: (url: string) => void;
   uploadedModelUrl: string | null;
-  onUploadModel: (url: string) => void;
+  onUploadModel: (url: string, upload: UploadKind) => void;
+  onUnsupportedFile?: (filename: string) => void;
 };
 
 export const ModelPicker = ({
@@ -35,6 +37,7 @@ export const ModelPicker = ({
   setModelUrl,
   uploadedModelUrl,
   onUploadModel,
+  onUnsupportedFile,
 }: ModelPickerProps) => {
   const [open, setOpen] = useState(false);
   const setIsWireframe = useViewer((s) => s.setIsWireframe);
@@ -102,8 +105,12 @@ export const ModelPicker = ({
               </button>
             ))}
             <ModelUpload
-              onUpload={(url) => {
-                onUploadModel(url);
+              onUpload={(url, upload) => {
+                onUploadModel(url, upload);
+                setOpen(false);
+              }}
+              onUnsupportedFile={(filename) => {
+                onUnsupportedFile?.(filename);
                 setOpen(false);
               }}
             />

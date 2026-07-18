@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import type { SplatFileType } from "@sparkjsdev/spark";
 import type { ModelOption } from "../ui/ModelPicker";
 
 const models: ModelOption[] = [
@@ -96,7 +97,16 @@ type ViewerState = {
   editTexture: boolean;
   setEditTexture: (b?: boolean) => void;
   uploadedModelUrl: string | null;
-  setUploadedModelUrl: (s: string | null) => void;
+  // Blob URLs carry no extension, so the uploaded file's kind/fileType has
+  // to be captured alongside the url at upload time - there's nothing to
+  // sniff it back out of later (see detectUploadKind in uploadFileType.ts).
+  uploadedModelKind: "mesh" | "splat" | null;
+  uploadedSplatFileType: SplatFileType | null;
+  setUploadedModelUrl: (
+    s: string | null,
+    kind?: "mesh" | "splat" | null,
+    fileType?: SplatFileType | null,
+  ) => void;
   resetCamera: boolean;
   setResetCamera: (b: boolean) => void;
   models: ModelOption[];
@@ -149,7 +159,23 @@ export const useViewer = create<ViewerState>()(
       setEditTexture: (b) =>
         set((s) => ({ editTexture: b !== undefined ? b : !s.editTexture })),
       uploadedModelUrl: null,
-      setUploadedModelUrl: (url) => set({ uploadedModelUrl: url }),
+      uploadedModelKind: null,
+      uploadedSplatFileType: null,
+      setUploadedModelUrl: (url, kind = null, fileType = null) =>
+        set((s) => {
+          if (
+            s.uploadedModelUrl &&
+            s.uploadedModelUrl.startsWith("blob:") &&
+            s.uploadedModelUrl !== url
+          ) {
+            URL.revokeObjectURL(s.uploadedModelUrl);
+          }
+          return {
+            uploadedModelUrl: url,
+            uploadedModelKind: kind,
+            uploadedSplatFileType: fileType,
+          };
+        }),
       resetCamera: false,
       setResetCamera: (b) => set({ resetCamera: b }),
       models: models,

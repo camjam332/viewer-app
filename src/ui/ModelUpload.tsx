@@ -1,18 +1,28 @@
 import { useRef, type ChangeEvent } from "react";
 import { Box } from "lucide-react";
+import { detectUploadKind, type UploadKind } from "../utils/uploadFileType";
 
 type ModelUploadProps = {
-  onUpload: (url: string) => void;
+  onUpload: (url: string, upload: UploadKind) => void;
+  onUnsupportedFile?: (filename: string) => void;
 };
 
-export const ModelUpload = ({ onUpload }: ModelUploadProps) => {
+export const ModelUpload = ({
+  onUpload,
+  onUnsupportedFile,
+}: ModelUploadProps) => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleChange = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = ""; // allow re-selecting the same file later
     if (!file) return;
-    onUpload(URL.createObjectURL(file));
+    const upload = detectUploadKind(file.name);
+    if (!upload) {
+      onUnsupportedFile?.(file.name);
+      return;
+    }
+    onUpload(URL.createObjectURL(file), upload);
   };
 
   return (
@@ -20,7 +30,7 @@ export const ModelUpload = ({ onUpload }: ModelUploadProps) => {
       <input
         ref={inputRef}
         type="file"
-        accept=".glb,.gltf"
+        accept=".glb,.gltf,.ply,.spz,.splat,.ksplat,.sog,.sogs"
         className="hidden"
         onChange={handleChange}
       />
