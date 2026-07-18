@@ -25,6 +25,10 @@ import { ErrorBoundary } from "react-error-boundary";
 import { useViewer } from "./state/state";
 import { useMeasurement } from "./state/measurementState";
 import { Measurement } from "./components/Measurement";
+import {
+  getSplatCentersForGraph,
+  setSplatCentersForGraph,
+} from "./state/splatCentersGraphHolder";
 import { Annotations } from "./components/Annotations";
 import { Sidebar } from "./ui/Sidebar";
 import { SplatTransformPanel } from "./ui/SplatTransformPanel";
@@ -239,14 +243,16 @@ function App() {
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
     null,
   );
-  const [splatCenters, setSplatCenters] = useState<Float32Array | null>(null);
-  // Mirrors splatCenters state - exists specifically so handleSplatClick
-  // can read the current value at call time without needing splatCenters
-  // in its own useCallback dependency array (a ref's identity is stable,
-  // so including it wouldn't even reliably trigger recreation on mutation
-  // anyway - state remains the correct mechanism for anything that needs
-  // to actually react to the value changing, like Measurement's
-  // graph-rebuild effect below).
+  // Bumps once per newly-extracted splat-centers array; the actual buffer
+  // lives in splatCentersGraphHolder.ts, not React state - see that
+  // module's comment and Measurement.tsx's splatCentersVersion prop for
+  // why. This primitive is what's safe to pass down to trigger Measurement's
+  // graph-rebuild effect and to gate UI on "do we have centers yet".
+  const [splatCentersVersion, setSplatCentersVersion] = useState(0);
+  // Mirrors the same data (forClicks, a separate buffer copy - see
+  // splatCenters.worker.ts) - exists specifically so handleSplatClick can
+  // read the current value at call time without needing it in its own
+  // useCallback dependency array.
   const splatCentersRef = useRef<Float32Array | null>(null);
 
   // Floater cleanup - analysis is opt-in (explicit button, not run on
@@ -400,10 +406,27 @@ function App() {
       // result now would silently corrupt whatever's actually loaded.
       if (splatRef.current !== targetSplat) return;
       splatCentersRef.current = forClicks;
-      setSplatCenters(forState);
       setSplatCentersExtractedAtTransform(
         getSplatTransformSnapshot(targetSplat),
       );
+      // Same two-frame staggering as applySplatCenters in handleSplatLoad -
+      // see that comment for the full reasoning. Bumping the version
+      // triggers Measurement's graph-rebuild effect (worker post + array
+      // copy) synchronously on commit, so without yielding first, the
+      // isRefreshingMeasurementData spinner set above would never get a
+      // chance to actually paint before that freeze. Awaited (not just
+      // fired off) so `finally` below doesn't clear the spinner until the
+      // main thread is genuinely free again - the same detection
+      // mechanism the load path relies on: the second rAF's callback
+      // can't run until the browser schedules it, which can't happen
+      // until whatever the first rAF triggered has finished.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          setSplatCentersForGraph(forState);
+          setSplatCentersVersion((v) => v + 1);
+          requestAnimationFrame(() => resolve());
+        });
+      });
     } catch (error) {
       console.error("Failed to refresh splat measurement data:", error);
     } finally {
@@ -548,7 +571,8 @@ function App() {
     setMeshDeformation(false);
     setErrorMessage(null);
     setLoadedSplatMesh(null);
-    setSplatCenters(null);
+    setSplatCentersForGraph(null);
+    setSplatCentersVersion(0);
     clearPoints();
     splatCentersRef.current = null;
     setFloaterAnalysis(null);
@@ -599,13 +623,14 @@ function App() {
           );
           setIsPreparingSplatData(true);
           // Yield one frame before triggering the actual update - without
-          // this, setSplatCenters below could get batched into the very
+          // this, the version bump below could get batched into the very
           // same blocking render pass as setIsPreparingSplatData itself,
           // meaning the "preparing" indicator would never get a chance
           // to actually paint before the freeze begins.
           requestAnimationFrame(() => {
-            setSplatCenters(forState);
-            // Queued behind whatever setSplatCenters ends up triggering,
+            setSplatCentersForGraph(forState);
+            setSplatCentersVersion((v) => v + 1);
+            // Queued behind whatever that version bump ends up triggering,
             // however long that turns out to be - a callback scheduled
             // here genuinely cannot run until the main thread is free
             // again, since JS is single-threaded and this is queued
@@ -649,12 +674,16 @@ function App() {
     [tool, addPoint, addAnnotation, effectiveModelUrl],
   );
 
-  // Reuses splatCenters (already extracted for the geodesic feature)
-  // rather than re-decoding centers from scratch - see
-  // analyzeSparkSplatFloaters's own comment for why. Requires splatCenters
-  // to already be populated, which is why the panel gates its "Analyze"
-  // button on that rather than just on a splat being loaded at all.
+  // Reuses the extracted splat centers (already extracted for the
+  // geodesic feature) rather than re-decoding centers from scratch - see
+  // analyzeSparkSplatFloaters's own comment for why. Requires centers to
+  // already be populated, which is why the panel gates its "Analyze"
+  // button on that rather than just on a splat being loaded at all. Reads
+  // getSplatCentersForGraph() fresh at call time rather than closing over
+  // a stale value, so it doesn't need splatCentersVersion in its own
+  // dependency array.
   const handleAnalyzeFloaters = useCallback(async () => {
+    const splatCenters = getSplatCentersForGraph();
     if (!splatRef.current || !splatCenters || splatCenters.length === 0) return;
     const targetSplat = splatRef.current;
     setIsAnalyzingFloaters(true);
@@ -696,13 +725,7 @@ function App() {
     } finally {
       setIsAnalyzingFloaters(false);
     }
-  }, [
-    splatCenters,
-    floaterThreshold,
-    connectivityMultiplier,
-    floaterAnalysis,
-    requestRender,
-  ]);
+  }, [floaterThreshold, connectivityMultiplier, floaterAnalysis, requestRender]);
 
   const handleFloaterThresholdChange = useCallback(
     (threshold: number) => {
@@ -778,20 +801,22 @@ function App() {
             isRefreshingMeasurementData={isRefreshingMeasurementData}
           />
         )}
-        {isSplatModel && splatCenters && splatCenters.length > 0 && (
-          <FloaterCleanupPanel
-            isAnalyzing={isAnalyzingFloaters}
-            analysisReady={floaterAnalysis !== null}
-            hiddenCount={hiddenFloaterCount}
-            totalCount={floaterAnalysis?.componentSizeFractions.length ?? 0}
-            threshold={floaterThreshold}
-            onAnalyze={handleAnalyzeFloaters}
-            onThresholdChange={handleFloaterThresholdChange}
-            onRevert={handleRevertFloaters}
-            connectivityMultiplier={connectivityMultiplier}
-            onConnectivityMultiplierChange={setConnectivityMultiplier}
-          />
-        )}
+        {isSplatModel &&
+          splatCentersVersion > 0 &&
+          (getSplatCentersForGraph()?.length ?? 0) > 0 && (
+            <FloaterCleanupPanel
+              isAnalyzing={isAnalyzingFloaters}
+              analysisReady={floaterAnalysis !== null}
+              hiddenCount={hiddenFloaterCount}
+              totalCount={floaterAnalysis?.componentSizeFractions.length ?? 0}
+              threshold={floaterThreshold}
+              onAnalyze={handleAnalyzeFloaters}
+              onThresholdChange={handleFloaterThresholdChange}
+              onRevert={handleRevertFloaters}
+              connectivityMultiplier={connectivityMultiplier}
+              onConnectivityMultiplierChange={setConnectivityMultiplier}
+            />
+          )}
         {isSplatModel && isMeasurementDataStale && (
           <StaleMeasurementDataWarning
             onRefresh={handleRefreshSplatMeasurementData}
@@ -930,7 +955,7 @@ function App() {
               modelRef={modelRef}
               modelUrl={effectiveModelUrl}
               meshReadyToken={meshReadyToken}
-              splatCenters={splatCenters}
+              splatCentersVersion={splatCentersVersion}
             />
             {!isSplatModel && (
               <>
