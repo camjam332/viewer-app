@@ -32,7 +32,22 @@ export const SparkScene = () => {
   const renderer = useSpark((s) => s.renderer);
 
   useEffect(() => {
-    const instance = new SparkRenderer({ renderer: gl });
+    const instance = new SparkRenderer({
+      renderer: gl,
+      // Defaults to 0 (unthrottled) - the depth-sort otherwise re-runs
+      // every single frame, including while a splat's transform is being
+      // dragged (sort order depends on position, so every frame
+      // invalidates it). A trace of that exact scenario on stump.spz
+      // showed this sort dominating a 9.5s main-thread stall. Floors the
+      // re-sort rate instead - a few frames of slightly stale sort order
+      // during fast motion is imperceptible next to that cost.
+      minSortIntervalMs: 50,
+      // Defaults to 1.0 (skip LOD splats smaller than 1px on screen).
+      // Raising this skips splats too small to matter visually - a
+      // quality-neutral win since LOD is already on for splat meshes
+      // (see SparkSplat.tsx).
+      lodRenderScale: 2.0,
+    });
     setRenderer(instance);
     return () => {
       instance.dispose();

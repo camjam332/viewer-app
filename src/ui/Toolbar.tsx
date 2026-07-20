@@ -40,6 +40,7 @@ export const Toolbar = ({
   const setTransformControlsMode = useViewer((s) => s.setTransformControlsMode);
   const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
   const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
+  const setLodEnabled = useViewer((s) => s.setLodEnabled);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -58,6 +59,8 @@ export const Toolbar = ({
   const showTransformControls = useViewer((s) => s.showTransformControls);
   const meshDeformation = useViewer((s) => s.meshDeformation);
   const cameraControlMode = useViewer((s) => s.cameraControlMode);
+  const lodEnabled = useViewer((s) => s.lodEnabled);
+  const isBuildingLod = useViewer((s) => s.isBuildingLod);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
   // Mirrors App.tsx's isSplatModel derivation - an uploaded file has no
@@ -254,6 +257,20 @@ export const Toolbar = ({
               className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
             />
           </div>
+          {isSplatModel && (
+            <div className="flex items-center gap-2">
+              <label className="text-white select-none ms-2 text-sm font-medium text-heading">
+                {isBuildingLod ? "Building LOD…" : "Enable LOD"}
+              </label>
+              <input
+                type="checkbox"
+                checked={lodEnabled}
+                disabled={isBuildingLod}
+                onChange={() => setLodEnabled()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium disabled:opacity-50"
+              />
+            </div>
+          )}
           {cameraControlMode === "orbit" && (
             <button
               className="rounded text-white bg-white/10 hover:bg-white/20 px-3 py-1"

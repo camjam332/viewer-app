@@ -1,6 +1,12 @@
 import { useThree, useFrame } from "@react-three/fiber";
 import { SparkControls } from "@sparkjsdev/spark";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { useViewer } from "../state/state";
+
+// How many consecutive non-moving frames to wait before declaring the
+// camera settled - roughly 160ms at 60fps. See the useFrame comment below
+// for why this exists at all.
+const SETTLE_FRAMES = 10;
 
 // SparkControls' constructor permanently attaches document-level keyboard
 // listeners and canvas-level pointer listeners with no dispose method (see
@@ -20,16 +26,36 @@ export function SparkFlyControls({ active }: { active: boolean }) {
   const gl = useThree((s) => s.gl);
   const get = useThree((s) => s.get);
   const set = useThree((s) => s.set);
+  const setIsCameraMoving = useViewer((s) => s.setIsCameraMoving);
 
   const controls = useMemo(
     () => new SparkControls({ canvas: gl.domElement }),
     [gl],
   );
+  // Hysteresis state for the isCameraMoving debounce in useFrame below -
+  // refs, not state, since they're written every frame and must never
+  // themselves trigger a re-render.
+  const wasMovingRef = useRef(false);
+  const settledFramesRef = useRef(0);
 
   useEffect(() => {
     controls.fpsMovement.enable = active;
     controls.pointerControls.enable = active;
-    if (!active) return;
+    if (!active) {
+      // useFrame below skips calling controls.update() entirely while
+      // inactive, so nothing would otherwise clear a stale `true` left
+      // over from whatever motion was happening the instant fly mode
+      // was switched off. Resetting the hysteresis refs alongside it -
+      // otherwise wasMovingRef could still read true on reactivation
+      // (nothing clears it just by deactivating), and useFrame's
+      // `if (!wasMovingRef.current)` guard would then skip re-announcing
+      // movement, leaving the store stuck at false even once real motion
+      // resumes.
+      wasMovingRef.current = false;
+      settledFramesRef.current = 0;
+      setIsCameraMoving(false);
+      return;
+    }
     // PointerControls' pointerdown/move/up listeners are attached once at
     // construction and keep recording drag position into `rotating`/
     // `sliding` regardless of `enable` - that flag only gates .update(),
@@ -75,7 +101,62 @@ export function SparkFlyControls({ active }: { active: boolean }) {
 
   useFrame(() => {
     if (!active) return;
-    controls.update(camera);
+    // Clamp the raw accumulated wheel delta before SparkControls consumes
+    // it. Unlike fpsMovement (WASD), which is speed-capped via an
+    // exponential-decay velocity model (moveInertia), pointerControls'
+    // wheel handler just does `this.scroll.add(new Vector3(deltaX, deltaY,
+    // deltaZ))` on every native `wheel` event with no cap, and update()
+    // applies the full accumulated vector as a single, instant,
+    // undamped position add. A fast scroll/fling gesture can fire many
+    // wheel events before the next animation frame, so that accumulated
+    // vector can be large enough to jump the camera right up against
+    // (or through) dense splat geometry in one frame - splat overdraw
+    // cost scales sharply with proximity, which is what actually shows
+    // up as dropped frames. Clamping here caps how far a single frame's
+    // worth of scroll can move the camera without touching Spark's own
+    // per-event accumulation or removing scroll-zoom's responsiveness -
+    // sustained scrolling still covers distance every frame, just at a
+    // bounded max rate instead of an unbounded burst.
+    const MAX_SCROLL_PER_FRAME = 120;
+    const scroll = controls.pointerControls.scroll;
+    if (scroll.length() > MAX_SCROLL_PER_FRAME) {
+      scroll.setLength(MAX_SCROLL_PER_FRAME);
+    }
+    // update() returns whether anything actually moved/rotated this frame -
+    // the same isCameraMoving flag CameraActivityBridge drives from
+    // CameraControls' wake/rest/sleep events in orbit mode, feeding the
+    // same App.tsx effect that disables SplatMesh.raycastable while the
+    // camera is in motion (a real per-splat WASM cost otherwise triggered
+    // by every wheel/pointer event React-three-fiber raycasts for).
+    //
+    // Debounced, not set directly from `moving` every frame - unlike
+    // CameraControls' wake/rest (which fire once each at gesture start/
+    // end), this per-frame flag is threshold-based on instantaneous
+    // velocity/scroll and can flip true/false rapidly within a single
+    // continuous scroll gesture (scroll itself is zeroed every frame in
+    // PointerControls.update()). App.tsx reads isCameraMoving reactively
+    // at the top of the whole component, so every flip was forcing a full
+    // React re-render - confirmed via trace as a new, real cost (heavy
+    // commitMutationEffectsOnFiber/renderRootSync presence) competing with
+    // the very raycast cost this was meant to avoid. Only calling
+    // setIsCameraMoving on an actual sustained transition - immediately on
+    // the first moving frame, but only after SETTLE_FRAMES consecutive
+    // non-moving frames for the reverse - keeps this an occasional,
+    // gesture-scoped update instead of a per-frame one.
+    const moving = controls.update(camera);
+    if (moving) {
+      settledFramesRef.current = 0;
+      if (!wasMovingRef.current) {
+        wasMovingRef.current = true;
+        setIsCameraMoving(true);
+      }
+    } else if (wasMovingRef.current) {
+      settledFramesRef.current += 1;
+      if (settledFramesRef.current >= SETTLE_FRAMES) {
+        wasMovingRef.current = false;
+        setIsCameraMoving(false);
+      }
+    }
   });
 
   return null;

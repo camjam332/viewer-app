@@ -90,41 +90,57 @@ export function extractSparkSplatCentersAsync(
   splatMesh: SplatMesh,
 ): Promise<SplatCenterBuffers> {
   return new Promise((resolve, reject) => {
-    const packedSplats = splatMesh.packedSplats;
-    const numSplats = packedSplats?.numSplats ?? 0;
-    if (!packedSplats || numSplats === 0) {
-      resolve({
-        forState: new Float32Array(0),
-        forClicks: new Float32Array(0),
-      });
-      return;
-    }
+    // Deferred one frame - a Promise executor runs synchronously the
+    // instant this function is called, before the caller's own `await`
+    // ever gets a chance to suspend. Without this, a caller that sets a
+    // loading/refreshing state right before awaiting this (both
+    // handleSparkSplatLoad and handleRefreshSplatMeasurementData do)
+    // never gets a chance to actually paint that state before the freeze
+    // below - React can't flush a render until the current synchronous
+    // call stack unwinds, and the packed-array copy was inside that same
+    // span.
+    requestAnimationFrame(() => {
+      const packedSplats = splatMesh.packedSplats;
+      const numSplats = packedSplats?.numSplats ?? 0;
+      if (!packedSplats || numSplats === 0) {
+        resolve({
+          forState: new Float32Array(0),
+          forClicks: new Float32Array(0),
+        });
+        return;
+      }
 
-    // A COPY of the packed array, not a transfer of the live one -
-    // transferring splatMesh's own packedArray would detach its
-    // underlying buffer out from under the actively-rendering splat,
-    // which may still need to read it later (Spark's own LOD/re-encoding
-    // paths, for instance). The copy is a fast, contiguous memory copy -
-    // not the per-splat decode work this whole change exists to move off
-    // the main thread, so it doesn't reintroduce a meaningful stall.
-    const packedArrayCopy = new Uint32Array(packedSplats.packedArray ?? []);
+      // A COPY of the packed array, not a transfer of the live one -
+      // transferring splatMesh's own packedArray would detach its
+      // underlying buffer out from under the actively-rendering splat,
+      // which may still need to read it later (Spark's own LOD/re-encoding
+      // paths, for instance). It's a fast, contiguous memory copy, but not
+      // a cheap one at this scale - it's the full raw per-splat buffer
+      // (every field, not just centers), so for a scene the size of
+      // stump.spz this is a genuine, measurable synchronous cost, not
+      // just the per-splat decode work this whole function exists to move
+      // off the main thread. That's exactly why it needs to run inside
+      // the deferred callback above rather than synchronously at call
+      // time.
+      const packedArrayCopy = new Uint32Array(packedSplats.packedArray ?? []);
 
-    splatMesh.updateMatrixWorld(true);
-    const matrixElements = Array.from(splatMesh.matrixWorld.elements);
+      splatMesh.updateMatrixWorld(true);
+      const matrixElements = Array.from(splatMesh.matrixWorld.elements);
 
-    const requestId = nextCenterRequestId++;
-    pendingCenterRequests.set(requestId, { resolve, reject });
+      const requestId = nextCenterRequestId++;
+      pendingCenterRequests.set(requestId, { resolve, reject });
 
-    getSplatCentersWorker().postMessage(
-      {
-        requestId,
-        packedArray: packedArrayCopy,
-        numSplats,
-        splatEncoding: packedSplats.splatEncoding,
-        matrixElements,
-      },
-      [packedArrayCopy.buffer],
-    );
+      getSplatCentersWorker().postMessage(
+        {
+          requestId,
+          packedArray: packedArrayCopy,
+          numSplats,
+          splatEncoding: packedSplats.splatEncoding,
+          matrixElements,
+        },
+        [packedArrayCopy.buffer],
+      );
+    });
   });
 }
 
@@ -247,24 +263,28 @@ export function handleSparkSplatLoad(
     splatMesh.updateMatrixWorld(true);
   }
 
-  // centers_only=false accounts for each splat's actual ellipsoid extent
-  // (rotated + scaled per-splat), not just its center point - a more
-  // generous box than centers-only, matching what fitToBox actually needs
-  // to avoid clipping visible content near the scene's edges. Returns
-  // local/object-space bounds - matrixWorld still needs applying manually,
-  // same pattern as computeBoundingBox() did for GaussianSplats3D.
-  const box = splatMesh
-    .getBoundingBox(false)
-    .applyMatrix4(splatMesh.matrixWorld);
   clearPoints();
 
+  // Sampled rather than a full forEachSplat scan - marker scale only needs
+  // a representative median, and a full scan + sort over millions of
+  // splats (e.g. stump.spz) was a synchronous main-thread block on the
+  // onLoad critical path, the same bug class root-caused for splat-center
+  // extraction above. Same evenly-strided sampling as
+  // sampleSparkSplatOrientation.
   const uniformScales: number[] = [];
+  const totalSplats = splatMesh.packedSplats?.numSplats ?? 0;
 
-  splatMesh.forEachSplat((index, center, scales) => {
-    const [scaleX, scaleY, scaleZ] = scales;
-    // Volume-preserving uniform scale for this specific splat
-    uniformScales.push(Math.cbrt(scaleX * scaleY * scaleZ));
-  });
+  if (totalSplats > 0 && splatMesh.packedSplats) {
+    const sampleCount = 20000;
+    const step = Math.max(1, Math.floor(totalSplats / sampleCount));
+    for (let i = 0; i < totalSplats; i += step) {
+      const splat = splatMesh.packedSplats.getSplat(i);
+      // Volume-preserving uniform scale for this specific splat
+      uniformScales.push(
+        Math.cbrt(splat.scales.x * splat.scales.y * splat.scales.z),
+      );
+    }
+  }
 
   // 2. Sort numerically
   uniformScales.sort((a, b) => a - b);
@@ -283,6 +303,19 @@ export function handleSparkSplatLoad(
   if (viewMode === "interior") {
     cameraControlsRef.current.setLookAt(0, 0, 0, 0, 0, 1, false);
   } else {
+    // Computed here, not unconditionally up front - centers_only=false
+    // accounts for each splat's actual ellipsoid extent (rotated + scaled
+    // per-splat), not just its center point, which is what fitToBox needs
+    // to avoid clipping visible content near the scene's edges, but it's
+    // a real, measurable synchronous cost (~2s for stump.spz's ~7M
+    // LOD-expanded splats) - a trace showed it dominating the gap between
+    // SplatMesh.initialized resolving and the splat actually appearing.
+    // "interior" mode never reads this (it positions the camera via
+    // setLookAt instead), so computing it unconditionally was pure dead
+    // work on that path.
+    const box = splatMesh
+      .getBoundingBox(false)
+      .applyMatrix4(splatMesh.matrixWorld);
     cameraControlsRef.current.reset(false);
     cameraControlsRef.current.fitToBox(box, false);
   }
@@ -482,9 +515,16 @@ function getFloaterWorker(): Worker {
 export function revertSparkFloaterAnalysis(
   splatMesh: SplatMesh,
   analysis: FloaterAnalysis | null,
+  // Restores whatever the user's own LOD preference actually is, rather
+  // than unconditionally forcing LOD back on - analyzeSparkSplatFloaters
+  // always disables it (a real requirement, not a preference override:
+  // see that function's comment for why), so this needs to know what to
+  // restore it to rather than assuming "on" was always the prior state.
+  // Callers pass the current lodEnabled store value.
+  restoreLod: boolean,
 ): void {
-  // 1. Re-enable the Level of Detail (LOD) system
-  splatMesh.enableLod = true;
+  // 1. Restore the Level of Detail (LOD) system to the user's preference
+  splatMesh.enableLod = restoreLod;
 
   const packedSplats = splatMesh.packedSplats;
   if (!packedSplats || !analysis) return;

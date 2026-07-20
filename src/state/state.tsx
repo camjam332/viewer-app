@@ -144,6 +144,15 @@ type ViewerState = {
   // frame-on-load) only work in orbit mode, see App.tsx's guards.
   cameraControlMode: CameraControlMode;
   setCameraControlMode: (m: CameraControlMode) => void;
+  // Off by default - splats load full-detail with no LOD build blocking
+  // the initial render (see SparkSplat.tsx). Opt-in, not per-model: a
+  // global toggle App.tsx reacts to, applying it to whichever splat is
+  // currently loaded and to every new load while it's on. Not reset on
+  // model switch, same as cameraControlMode - a sticky session preference.
+  lodEnabled: boolean;
+  setLodEnabled: (b?: boolean) => void;
+  isBuildingLod: boolean;
+  setIsBuildingLod: (b: boolean) => void;
 };
 
 export const useViewer = create<ViewerState>()(
@@ -242,6 +251,11 @@ export const useViewer = create<ViewerState>()(
       setRequestRender: (fn) => set({ requestRender: fn }),
       cameraControlMode: "orbit",
       setCameraControlMode: (m) => set({ cameraControlMode: m }),
+      lodEnabled: false,
+      setLodEnabled: (b) =>
+        set((s) => ({ lodEnabled: b !== undefined ? b : !s.lodEnabled })),
+      isBuildingLod: false,
+      setIsBuildingLod: (b) => set({ isBuildingLod: b }),
     }),
     {
       name: "viewer-storage",

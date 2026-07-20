@@ -15,6 +15,7 @@ import type {
   MeshBuffers,
 } from "../workers/geodesicWorker";
 import { MARKER_SPHERE_GEOMETRY } from "../utils/markerGeometry";
+import { getSplatCentersForGraph } from "../state/splatCentersGraphHolder";
 
 type MeasurementProps = {
   modelRef: RefObject<Object3D | null>;
@@ -26,17 +27,18 @@ type MeasurementProps = {
   // there's anything real to read from the ref, with nothing left to
   // trigger it a second time once the mesh actually finishes loading.
   meshReadyToken?: number;
-  /** Present only once a splat scene has finished loading; null in mesh mode. */
   /**
-   * Flat, world-space, interleaved xyz splat centers - already extracted
-   * and transformed by whichever splat library is currently loaded (see
-   * sparkSplat_utils.ts's extractSparkSplatCenters). Keeps this component
-   * library-agnostic: it doesn't know or care whether the centers came
-   * from Spark, GaussianSplats3D, or anything else, only that it's a
-   * plain Float32Array - same reason buildSplatGraph/geodesicWorker.ts
-   * were already written this way.
+   * Bumps once per newly-extracted splat-centers array (initial load, or
+   * a manual "Refresh Measurement Data") - the actual Float32Array itself
+   * is deliberately NOT passed as a prop, only this primitive counter.
+   * See splatCentersGraphHolder.ts: React's dev-mode Components-track
+   * instrumentation recursively walks every prop's own keys, and a
+   * multi-million-element typed array reachable from props (even nested
+   * inside a plain object or ref) measured as a multi-second main-thread
+   * stall for a scene the size of stump.spz. Read the actual buffer via
+   * getSplatCentersForGraph() instead.
    */
-  splatCenters?: Float32Array | null;
+  splatCentersVersion?: number;
 };
 
 type DrapedResult = { points: Vector3[]; distance: number };
@@ -45,7 +47,7 @@ export const Measurement = ({
   modelRef,
   modelUrl,
   meshReadyToken,
-  splatCenters,
+  splatCentersVersion,
 }: MeasurementProps) => {
   const points = useMeasurement((s) => s.points);
   const setSurfaceDistance = useMeasurement((s) => s.setSurfaceDistance);
@@ -58,6 +60,9 @@ export const Measurement = ({
   const graphRequestIdRef = useRef<number | null>(null);
   const geodesicRequestIdRef = useRef<number | null>(null);
   const graphReadyRef = useRef(false);
+  // Tracks whether workerRef.current has a buildGraph/buildSplatGraph
+  // request in flight - see ensureIdleWorker below.
+  const buildInFlightRef = useRef(false);
   const [graphReadyToken, setGraphReadyToken] = useState(0);
   const [draped, setDraped] = useState<DrapedResult | null>(null);
 
@@ -80,6 +85,7 @@ export const Measurement = ({
       console.log(data.type);
       if (data.type === "graphReady") {
         if (data.requestId !== graphRequestIdRef.current) return; // stale
+        buildInFlightRef.current = false;
         setBuildingGraph(false);
         graphReadyRef.current = true;
         setGraphReadyToken((t) => t + 1);
@@ -94,6 +100,7 @@ export const Measurement = ({
         setDraped({ points: pathPoints, distance: data.distance });
       } else if (data.type === "error") {
         if (data.requestId === graphRequestIdRef.current) {
+          buildInFlightRef.current = false;
           graphReadyRef.current = false;
         }
         if (data.requestId === geodesicRequestIdRef.current) {
@@ -104,6 +111,29 @@ export const Measurement = ({
 
     return worker;
   }, []);
+
+  // Reuses workerRef.current when it's idle instead of unconditionally
+  // terminating and recreating it on every mesh/splat load. A fresh
+  // module Worker re-pays real cost every time - this one's module
+  // imports three.js's BufferGeometryUtils plus the k-d tree/adjacency
+  // code, so re-instantiating it is a genuine, measurable chunk of the
+  // "onLoad finished but still stalled before buildSplatGraph fires" gap.
+  // Termination is only actually needed to cancel a build that's
+  // mid-flight - buildGraph/buildSplatGraph run as one synchronous call
+  // inside the worker's onmessage handler, so nothing short of killing
+  // the thread can interrupt one already running. If nothing is in
+  // flight, there's no wasted CPU to reclaim, so the existing (already
+  // warm) worker is reused as-is.
+  const ensureIdleWorker = useCallback((): Worker => {
+    if (workerRef.current && !buildInFlightRef.current) {
+      return workerRef.current;
+    }
+    workerRef.current?.terminate();
+    const worker = createGeodesicWorker();
+    workerRef.current = worker;
+    buildInFlightRef.current = false;
+    return worker;
+  }, [createGeodesicWorker]);
 
   // The graph build (weld + adjacency, or k-d tree + kNN graph) and the
   // Dijkstra search are both O(vertex/splat count) or worse, which freezes
@@ -140,18 +170,13 @@ export const Measurement = ({
     // worker's onmessage handler, so a stale build from a previously
     // selected mesh needs the thread killed outright to actually stop -
     // the requestId check further down only discards its eventual
-    // result, it doesn't reclaim the CPU time already being spent on it.
-    // Terminating unconditionally here (not just when a mesh is
-    // successfully found) also means buildingGraph reliably gets reset
-    // to false on every transition, not just the successful ones -
-    // buildingGraph is shared state between this effect and the splat
-    // one, so a stuck-true here could just as easily break the splat
-    // path's toast as the reverse.
-    if (workerRef.current) {
-      workerRef.current.terminate();
-    }
-    const freshWorker = createGeodesicWorker();
-    workerRef.current = freshWorker;
+    // result, it doesn't reclaim the CPU time already being spent on it
+    // (see ensureIdleWorker). Always resets buildingGraph regardless, so
+    // it reliably gets reset to false on every transition, not just the
+    // successful ones - buildingGraph is shared state between this effect
+    // and the splat one, so a stuck-true here could just as easily break
+    // the splat path's toast as the reverse.
+    const freshWorker = ensureIdleWorker();
 
     graphReadyRef.current = false;
     setDraped(null);
@@ -212,34 +237,37 @@ export const Measurement = ({
     // CURRENT model's own build was never actually reached.
     const rafId = requestAnimationFrame(() => {
       setBuildingGraph(true);
+      buildInFlightRef.current = true;
       freshWorker.postMessage(message, transfer);
     });
     return () => cancelAnimationFrame(rafId);
-  }, [modelUrl, meshReadyToken, createGeodesicWorker]);
+  }, [modelUrl, meshReadyToken, ensureIdleWorker]);
 
-  // Rebuild the SPLAT graph whenever a new splatCenters array arrives -
-  // keyed on the array's own identity, which changes exactly once per
-  // successful splat load (see extractSparkSplatCenters /
+  // Rebuild the SPLAT graph whenever a new splat-centers array arrives -
+  // keyed on splatCentersVersion, a primitive counter that bumps exactly
+  // once per successful splat load (see extractSparkSplatCenters /
   // handleSparkSplatLoad), same reasoning as keying on splatMesh identity
   // used to have. Extraction/world-space transform already happened
   // upstream - this effect doesn't know or care which splat library
-  // produced the array.
+  // produced the array. The actual buffer is read via
+  // getSplatCentersForGraph(), not a prop - see splatCentersGraphHolder.ts.
   useEffect(() => {
-    // Terminate and replace unconditionally, on every splatCenters
-    // change - including the transition to null while switching models,
-    // not just when new real centers arrive. buildSplatGraph runs as one
-    // synchronous call inside the worker's onmessage handler - once
-    // started, nothing can interrupt it short of killing the thread.
-    // Previously this only happened in the "have new centers" branch,
-    // which left a stale build running (real wasted CPU) for the entire
-    // gap between "model changed" and "new splat's centers are ready" -
-    // often several seconds - and left buildingGraph stuck at true for
-    // that whole window too.
-    if (workerRef.current) {
-      workerRef.current.terminate();
-    }
-    const freshWorker = createGeodesicWorker();
-    workerRef.current = freshWorker;
+    // Cancels an in-flight build and replaces the worker, on every
+    // version bump - including the transition to 0/undefined while
+    // switching models, not just when new real centers arrive (see
+    // ensureIdleWorker). buildSplatGraph runs as one synchronous call
+    // inside the worker's onmessage handler - once started, nothing can
+    // interrupt it short of killing the thread, so a stale build from a
+    // previous splat (real wasted CPU, often for the entire multi-second
+    // gap between "model changed" and "new splat's centers are ready")
+    // needs to actually be cancelled, not just have its eventual result
+    // discarded. If nothing is in flight, ensureIdleWorker reuses the
+    // existing worker instead - avoids re-paying that worker's own
+    // module-compile cost (three.js's BufferGeometryUtils + the k-d tree
+    // code) on every single load, which was itself a real contributor to
+    // the gap between the splat becoming visible and buildSplatGraph
+    // actually being posted.
+    const freshWorker = ensureIdleWorker();
 
     graphReadyRef.current = false;
     setDraped(null);
@@ -253,7 +281,8 @@ export const Measurement = ({
     // buildingGraph-keyed effect was silently not re-firing for B.
     setBuildingGraph(false);
 
-    if (!splatCenters || splatCenters.length === 0) {
+    const splatCenters = getSplatCentersForGraph();
+    if (!splatCentersVersion || !splatCenters || splatCenters.length === 0) {
       return;
     }
 
@@ -272,17 +301,17 @@ export const Measurement = ({
     //
     // Copies splatCenters rather than posting it directly, so the
     // buffer that actually gets transferred (and detached) belongs to
-    // THIS message alone - splatCenters itself is shared React state
-    // (also read by App.tsx's floater cleanup feature), not something
-    // exclusively owned by this effect. Transferring the shared
-    // reference directly - which this used to do - detaches its buffer
-    // out from under every other consumer of that same state the moment
-    // this effect runs, permanently, for the rest of that splat's
-    // lifetime: a real, confirmed bug (empty-looking Float32Array with
-    // byteLength: 0 wherever splatCenters was read afterward), not a
-    // hypothetical. The copy itself is cheap - a raw array copy, not
-    // the expensive per-splat decode loop the original transfer-instead-
-    // of-clone change was actually targeting.
+    // THIS message alone - splatCenters itself lives in the shared
+    // module-level holder (also read by App.tsx's floater cleanup
+    // feature), not something exclusively owned by this effect.
+    // Transferring the shared reference directly - which this used to
+    // do - detaches its buffer out from under every other consumer of
+    // that same state the moment this effect runs, permanently, for the
+    // rest of that splat's lifetime: a real, confirmed bug (empty-looking
+    // Float32Array with byteLength: 0 wherever splatCenters was read
+    // afterward), not a hypothetical. The copy itself is cheap - a raw
+    // array copy, not the expensive per-splat decode loop the original
+    // transfer-instead-of-clone change was actually targeting.
     const centersForWorker = new Float32Array(splatCenters);
     const message: GeodesicWorkerRequest = {
       type: "buildSplatGraph",
@@ -309,10 +338,11 @@ export const Measurement = ({
     // whatever's actually selected by then.
     const rafId = requestAnimationFrame(() => {
       setBuildingGraph(true);
+      buildInFlightRef.current = true;
       freshWorker.postMessage(message, [centersForWorker.buffer]);
     });
     return () => cancelAnimationFrame(rafId);
-  }, [splatCenters, createGeodesicWorker]);
+  }, [splatCentersVersion, ensureIdleWorker]);
 
   // Recompute the geodesic path whenever the measurement points (or the
   // freshly-built graph) change. Fully generic over mesh/splat - the
