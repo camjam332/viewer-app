@@ -8,7 +8,6 @@ import {
   useGLTF,
   GizmoHelper,
   GizmoViewport,
-  Stats,
 } from "@react-three/drei";
 import { SparkFlyControls } from "./components/SparkFlyControls";
 import {
@@ -157,20 +156,30 @@ function CameraActivityBridge({
     if (!controls) return;
 
     const handleWake = () => setIsCameraMoving(true);
-    const handleRest = () => setIsCameraMoving(false);
-    // sleep also implies rest, and fires unconditionally even in the
-    // (documented) wheel-zoom case where rest's usual pairing might
-    // behave differently - cheap, harmless redundancy with handleRest.
+    // rest deliberately not used here - it fires far more often than
+    // wake/sleep (any brief pause mid-gesture counts as "resting"),
+    // which was re-triggering the same per-render churn root-caused in
+    // SparkFlyControls' isCameraMoving debounce - App.tsx reads
+    // isCameraMoving reactively at the top level, so every extra flip
+    // forces a full re-render. sleep alone is enough to mark the camera
+    // settled once a gesture actually ends.
     const handleSleep = () => setIsCameraMoving(false);
 
     controls.addEventListener("wake", handleWake);
-    controls.addEventListener("rest", handleRest);
     controls.addEventListener("sleep", handleSleep);
 
     return () => {
       controls.removeEventListener("wake", handleWake);
-      controls.removeEventListener("rest", handleRest);
       controls.removeEventListener("sleep", handleSleep);
+      // This component only unmounts by switching cameraControlMode away
+      // from "orbit" (App.tsx gates it on that), which means CameraControls
+      // itself is unmounting too - nothing else will ever fire wake/sleep
+      // for it again. Without this, isCameraMoving could be left stuck
+      // true if the switch happens mid-drag/momentum (wake fired, sleep
+      // hasn't yet) - SparkFlyControls only clears it once real movement
+      // is detected in fly mode, so a switch-then-pause would otherwise
+      // leave mesh.raycastable disabled indefinitely.
+      setIsCameraMoving(false);
     };
   }, [cameraControlsRef, setIsCameraMoving]);
 
@@ -211,6 +220,9 @@ function App() {
   const setMarkerScale = useViewer((s) => s.setMarkerScale);
   const tool = useViewer((s) => s.tool);
   const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
+  const lodEnabled = useViewer((s) => s.lodEnabled);
+  const setIsBuildingLod = useViewer((s) => s.setIsBuildingLod);
+  const isCameraMoving = useViewer((s) => s.isCameraMoving);
   // Same mechanism TextureCanvas.tsx already uses for its own imperative,
   // outside-of-React mutations - applySparkFloaterThreshold directly
   // mutates the live Three.js object (setSplat + needsUpdate), which
@@ -243,6 +255,13 @@ function App() {
   const [loadedSplatMesh, setLoadedSplatMesh] = useState<SplatMesh | null>(
     null,
   );
+  // Tracks which mesh (if any) currently has a createLodSplats() call in
+  // flight - packedSplats.lodSplats only gets set once that call resolves,
+  // so checking lodSplats alone can't distinguish "never started" from
+  // "already running", letting a rapid off/on/off toggle within one
+  // build's multi-second window kick off a second concurrent build. See
+  // the LOD effect below.
+  const lodBuildInFlightRef = useRef<SplatMesh | null>(null);
   // Bumps once per newly-extracted splat-centers array; the actual buffer
   // lives in splatCentersGraphHolder.ts, not React state - see that
   // module's comment and Measurement.tsx's splatCentersVersion prop for
@@ -422,6 +441,14 @@ function App() {
       // until whatever the first rAF triggered has finished.
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => {
+          // Re-checked here, not just before the deferral above - the
+          // user has a full frame to switch models in between, and
+          // without this a stale write would silently land on whatever
+          // splat is actually current by the time this fires.
+          if (splatRef.current !== targetSplat) {
+            resolve();
+            return;
+          }
           setSplatCentersForGraph(forState);
           setSplatCentersVersion((v) => v + 1);
           requestAnimationFrame(() => resolve());
@@ -571,6 +598,7 @@ function App() {
     setMeshDeformation(false);
     setErrorMessage(null);
     setLoadedSplatMesh(null);
+    setIsBuildingLod(false);
     setSplatCentersForGraph(null);
     setSplatCentersVersion(0);
     clearPoints();
@@ -583,6 +611,11 @@ function App() {
     setSplatTransformDisplay(null);
     setSplatCentersExtractedAtTransform(null);
     setSplatProgress(null);
+    // lodEnabled deliberately NOT reset here - it's a sticky, global
+    // preference (see state.tsx), not per-model. The LOD effect
+    // (keyed on [lodEnabled, loadedSplatMesh]) re-applies it to every
+    // new load automatically; resetting it here would silently turn
+    // that into a one-shot instead of a standing preference.
     setIsPreparingSplatData(false);
     setHasManualTransformEdit(false);
     setCameraControlMode("orbit");
@@ -628,6 +661,13 @@ function App() {
           // meaning the "preparing" indicator would never get a chance
           // to actually paint before the freeze begins.
           requestAnimationFrame(() => {
+            // Re-checked here - handleSparkSplatLoad's own staleness guard
+            // ran before applySplatCenters was even called, but the user
+            // has a full frame to switch models in between that call and
+            // this deferred one, which would otherwise let a stale write
+            // land on whatever splat is actually current by the time this
+            // fires.
+            if (splatRef.current !== splatMesh) return;
             setSplatCentersForGraph(forState);
             setSplatCentersVersion((v) => v + 1);
             // Queued behind whatever that version bump ends up triggering,
@@ -653,6 +693,80 @@ function App() {
     },
     [selectedModel, setMarkerScale, clearPoints, readSplatTransform],
   );
+
+  // Applies lodEnabled to whichever splat is currently loaded - fires both
+  // when the toggle changes (apply to the current splat immediately) and
+  // when loadedSplatMesh changes while lodEnabled is already true (build
+  // LOD for every new load automatically, in the background). Genuinely
+  // in the background: createLodSplats() operates on data already
+  // decoded and resident, dispatched to Spark's own worker pool, so it
+  // never blocks the splat that's already rendering - see SparkSplat.tsx
+  // for why the initial load itself no longer builds LOD at all.
+  //
+  // Toggling off uses SplatMesh's own enableLod flag rather than disposing
+  // the built LOD data - confirmed from source that update() reads
+  // enableLod fresh every frame (`if (this.enableLod === false) {
+  // this.context.enableLod.value = false; }`), independent of whether
+  // packedSplats.lodSplats still exists. So this is an instant, free
+  // toggle in both directions once LOD has been built once - the
+  // alternative (disposeLodSplats() on toggle-off) would force a full
+  // rebuild on every re-enable, since createLodSplats() has no way to
+  // resume from a previous result.
+  useEffect(() => {
+    const mesh = loadedSplatMesh;
+    if (!mesh?.packedSplats) return;
+    mesh.enableLod = lodEnabled;
+    if (!lodEnabled) return;
+
+    // Already built - just flipping enableLod above is enough, no need
+    // to rebuild. Checking lodSplats directly (not packedSplats.lod,
+    // which createLodSplats() sets and never clears) so this correctly
+    // detects "never built yet" regardless of how many times enableLod
+    // has been toggled since.
+    if (mesh.packedSplats.lodSplats) return;
+    // A build is already running for this exact mesh - lodSplats alone
+    // can't tell "never started" apart from "in progress", since it's
+    // only set once createLodSplats() resolves. Without this, toggling
+    // off/on/off again inside one build's multi-second window would kick
+    // off a second concurrent build racing to set lodSplats on completion.
+    if (lodBuildInFlightRef.current === mesh) return;
+
+    lodBuildInFlightRef.current = mesh;
+    setIsBuildingLod(true);
+    mesh.packedSplats
+      .createLodSplats({ quality: false })
+      .catch((error: unknown) => {
+        console.error("Failed to build LOD splats:", error);
+      })
+      .finally(() => {
+        if (lodBuildInFlightRef.current === mesh) {
+          lodBuildInFlightRef.current = null;
+        }
+        // Staleness guard, same reasoning as handleSparkSplatLoad's - if
+        // the user switched models while this was building, the spinner
+        // belongs to whatever's actually loaded now, not this mesh.
+        if (splatRef.current !== mesh) return;
+        setIsBuildingLod(false);
+      });
+  }, [lodEnabled, loadedSplatMesh]);
+
+  // Disables SplatMesh's own raycasting while the camera is actively being
+  // orbited/zoomed. Confirmed from source: SplatMesh.raycast()'s very
+  // first line is `if (!this.raycastable || ...) return;` - a real,
+  // measurable WASM raycast (raycast_packed_buffer, tested against every
+  // splat) only runs past that check. React-three-fiber's pointer-event
+  // system raycasts every object with a registered handler (SparkSplat
+  // only has onClick here) on every relevant DOM event it listens to -
+  // a trace of wheel-zoom with LOD off showed this raycast alone
+  // accounting for ~48% of sampled main-thread time during a sustained
+  // frame-drop, fired once per wheel tick. Re-enabled the moment the
+  // camera settles, so click-to-measure/annotate still works normally
+  // once the user stops navigating.
+  useEffect(() => {
+    const mesh = loadedSplatMesh;
+    if (!mesh) return;
+    mesh.raycastable = !isCameraMoving;
+  }, [isCameraMoving, loadedSplatMesh]);
 
   const handleSplatClick = useCallback(
     (event: ThreeEvent<MouseEvent>) => {
@@ -699,7 +813,7 @@ function App() {
       // Re-analyze makes this reachable at all - the very first Analyze
       // on a freshly-loaded splat has nothing to restore.
       if (floaterAnalysis) {
-        revertSparkFloaterAnalysis(targetSplat, floaterAnalysis);
+        revertSparkFloaterAnalysis(targetSplat, floaterAnalysis, lodEnabled);
       }
 
       const result = await analyzeSparkSplatFloaters(
@@ -725,7 +839,13 @@ function App() {
     } finally {
       setIsAnalyzingFloaters(false);
     }
-  }, [floaterThreshold, connectivityMultiplier, floaterAnalysis, requestRender]);
+  }, [
+    floaterThreshold,
+    connectivityMultiplier,
+    floaterAnalysis,
+    requestRender,
+    lodEnabled,
+  ]);
 
   const handleFloaterThresholdChange = useCallback(
     (threshold: number) => {
@@ -742,20 +862,21 @@ function App() {
     [floaterAnalysis, requestRender],
   );
 
-  // Reverts opacity to original and re-enables LOD (see
-  // revertSparkFloaterAnalysis's own comments), then resets local state
-  // back to the pre-analysis view - analysisReady={floaterAnalysis !==
-  // null} in the panel means clearing this is what actually brings the
-  // "Analyze for Floaters" button back, not just a visual reset.
+  // Reverts opacity to original and restores LOD to the user's own
+  // preference (see revertSparkFloaterAnalysis's own comments), then
+  // resets local state back to the pre-analysis view -
+  // analysisReady={floaterAnalysis !== null} in the panel means clearing
+  // this is what actually brings the "Analyze for Floaters" button back,
+  // not just a visual reset.
   const handleRevertFloaters = useCallback(() => {
     if (splatRef.current) {
-      revertSparkFloaterAnalysis(splatRef.current, floaterAnalysis);
+      revertSparkFloaterAnalysis(splatRef.current, floaterAnalysis, lodEnabled);
       requestRender();
     }
     setFloaterAnalysis(null);
     setFloaterThreshold(DEFAULT_FLOATER_THRESHOLD);
     setHiddenFloaterCount(0);
-  }, [floaterAnalysis, requestRender]);
+  }, [floaterAnalysis, requestRender, lodEnabled]);
 
   useEffect(() => {
     pruneUploadedAnnotations();
@@ -879,12 +1000,26 @@ function App() {
         }
         dpr={[1, 2]}
       >
-        <Stats />
         <GizmoHelper alignment="bottom-right" margin={GIZMO_MARGIN}>
           <GizmoViewport axisColors={GIZMO_AXIS_COLORS} labelColor="white" />
         </GizmoHelper>
         {cameraControlMode === "orbit" && (
-          <CameraControls ref={cameraControlsRef} makeDefault />
+          <CameraControls
+            ref={cameraControlsRef}
+            makeDefault
+            // Default 1.0 - camera-controls' dolly (mouse wheel/pinch)
+            // applies an exponential distance scale per wheel event
+            // (distance *= 0.95^(-delta*dollySpeed)), with no cap on how
+            // many events a fast scroll burst can fire before the next
+            // render. Unlike WASD/fly movement (which is speed-capped via
+            // inertia), a quick flick of the wheel can collapse the
+            // camera-to-splat distance to near zero within a handful of
+            // events - and splat overdraw cost scales sharply with
+            // proximity, causing the frame drops seen specifically during
+            // zoom. Lowering this slows how fast that collapse can happen
+            // without capping zoom range or removing damping.
+            dollySpeed={0.4}
+          />
         )}
         <SparkFlyControls active={cameraControlMode === "fly"} />
         <InvalidateBridge />

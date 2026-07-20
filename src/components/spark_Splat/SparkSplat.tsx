@@ -12,13 +12,6 @@ type SparkSplatParams = {
   fileType?: SplatFileType;
   onLoad?: (mesh: SplatMesh) => void;
   onError?: (error: unknown) => void;
-  // Reduces splat density based on distance/screen coverage - directly
-  // targets GPU-side overdraw cost, the actual bottleneck a performance
-  // trace showed for this renderer (periodic 27-60ms GPU-process spikes
-  // correlating with dropped frames while orbiting, despite main-thread
-  // JS cost staying under 1ms/frame). Defaults on; pass false to compare
-  // against full-detail rendering.
-  lod?: boolean | "quality";
   // Fires as bytes download/decode - standard DOM ProgressEvent
   // (.loaded/.total/.lengthComputable), sourced from Spark's own worker
   // reporting real byte counts back via postMessage. Included in the
@@ -59,7 +52,6 @@ export const SparkSplat = ({
   onLoad,
   onError,
   onProgress,
-  lod = true,
   onClick,
   onPointerDown,
   onPointerMove,
@@ -73,20 +65,16 @@ export const SparkSplat = ({
     // immediately at construction here (no separate "add scene" call), so
     // a synthetic StrictMode cleanup just interrupts and disposes this
     // instance before the real mount creates a fresh one.
-    // nonLod: true is required alongside lod - without it, Spark's worker
-    // only populates lodSplats and leaves the base PackedSplats empty
-    // (numSplats: 0), which is what getBoundingBox() and anything else
-    // reading the base data actually uses. Confirmed directly in
-    // worker.ts: result starts as {} and only gets result.lodSplats set
-    // unless nonLod is true. Tradeoff: keeps both the full-res and LOD
-    // representations in memory rather than discarding the original -
-    // necessary here since handleSparkSplatLoad's camera framing depends
-    // on the base data being real.
+    // No lod/nonLod here - LOD is never built as part of the initial load
+    // (a trace showed the LOD build itself blocking SplatMesh.initialized,
+    // and therefore the first render, for 20+ seconds on a scene the size
+    // of stump.spz). This always takes Spark's fast decode-only path, so
+    // the splat appears as soon as bytes are decoded. LOD is opt-in
+    // afterward, via packedSplats.createLodSplats() - see App.tsx's
+    // lodEnabled effect.
     const instance = new SplatMesh({
       url,
       fileType,
-      lod,
-      nonLod: lod ? true : undefined,
       onProgress,
     });
 
@@ -105,7 +93,7 @@ export const SparkSplat = ({
       cancelled = true;
       instance.dispose();
     };
-  }, [url, fileType, lod, onLoad, onError, onProgress]);
+  }, [url, fileType, onLoad, onError, onProgress]);
 
   if (!splat) return null;
 

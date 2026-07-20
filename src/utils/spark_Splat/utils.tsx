@@ -263,15 +263,6 @@ export function handleSparkSplatLoad(
     splatMesh.updateMatrixWorld(true);
   }
 
-  // centers_only=false accounts for each splat's actual ellipsoid extent
-  // (rotated + scaled per-splat), not just its center point - a more
-  // generous box than centers-only, matching what fitToBox actually needs
-  // to avoid clipping visible content near the scene's edges. Returns
-  // local/object-space bounds - matrixWorld still needs applying manually,
-  // same pattern as computeBoundingBox() did for GaussianSplats3D.
-  const box = splatMesh
-    .getBoundingBox(false)
-    .applyMatrix4(splatMesh.matrixWorld);
   clearPoints();
 
   // Sampled rather than a full forEachSplat scan - marker scale only needs
@@ -312,6 +303,19 @@ export function handleSparkSplatLoad(
   if (viewMode === "interior") {
     cameraControlsRef.current.setLookAt(0, 0, 0, 0, 0, 1, false);
   } else {
+    // Computed here, not unconditionally up front - centers_only=false
+    // accounts for each splat's actual ellipsoid extent (rotated + scaled
+    // per-splat), not just its center point, which is what fitToBox needs
+    // to avoid clipping visible content near the scene's edges, but it's
+    // a real, measurable synchronous cost (~2s for stump.spz's ~7M
+    // LOD-expanded splats) - a trace showed it dominating the gap between
+    // SplatMesh.initialized resolving and the splat actually appearing.
+    // "interior" mode never reads this (it positions the camera via
+    // setLookAt instead), so computing it unconditionally was pure dead
+    // work on that path.
+    const box = splatMesh
+      .getBoundingBox(false)
+      .applyMatrix4(splatMesh.matrixWorld);
     cameraControlsRef.current.reset(false);
     cameraControlsRef.current.fitToBox(box, false);
   }
@@ -511,9 +515,16 @@ function getFloaterWorker(): Worker {
 export function revertSparkFloaterAnalysis(
   splatMesh: SplatMesh,
   analysis: FloaterAnalysis | null,
+  // Restores whatever the user's own LOD preference actually is, rather
+  // than unconditionally forcing LOD back on - analyzeSparkSplatFloaters
+  // always disables it (a real requirement, not a preference override:
+  // see that function's comment for why), so this needs to know what to
+  // restore it to rather than assuming "on" was always the prior state.
+  // Callers pass the current lodEnabled store value.
+  restoreLod: boolean,
 ): void {
-  // 1. Re-enable the Level of Detail (LOD) system
-  splatMesh.enableLod = true;
+  // 1. Restore the Level of Detail (LOD) system to the user's preference
+  splatMesh.enableLod = restoreLod;
 
   const packedSplats = splatMesh.packedSplats;
   if (!packedSplats || !analysis) return;
