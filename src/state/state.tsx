@@ -65,6 +65,12 @@ const models: ModelOption[] = [
     kind: "splat",
     splatViewMode: "object",
   },
+  {
+    modelUrl: "/models/Kitty_AndyOne.spz",
+    name: "Cat (Splat)",
+    kind: "splat",
+    splatViewMode: "object",
+  },
 ];
 
 export type Tool = "orbit" | "measure" | "annotate";
@@ -153,6 +159,24 @@ type ViewerState = {
   setLodEnabled: (b?: boolean) => void;
   isBuildingLod: boolean;
   setIsBuildingLod: (b: boolean) => void;
+  // Off by default - forces SparkRenderer to re-run generate() (and
+  // therefore re-evaluate objectModifier/worldModifier, e.g. the breathe
+  // animation) every single frame instead of only when the camera moves.
+  // Real cost, not just "recompute a value": each call rebuilds the
+  // SplatMesh's dyno graph from scratch (constructGenerator), which the
+  // compiled-shader cache in SparkAccumulator keys by object identity - so
+  // this is a full GLSL shader recompile every frame, not a cheap uniform
+  // refresh. Expect visible jank while this is on; that's why it's an
+  // explicit opt-in toggle rather than default animation behavior.
+  forceSplatRegenerateEachFrame: boolean;
+  setForceSplatRegenerateEachFrame: (b?: boolean) => void;
+  // Selector for the breathe modifier (see vegetationMask.ts) - only
+  // splats whose excess-green index (2*g - r - b, a lighting-robust
+  // vegetation measure) clears vegetationThreshold get animated. Range is
+  // roughly [-2, 2] in practice; real vegetation greens usually land well
+  // under 1.
+  vegetationThreshold: number;
+  setVegetationThreshold: (n: number) => void;
 };
 
 export const useViewer = create<ViewerState>()(
@@ -256,6 +280,14 @@ export const useViewer = create<ViewerState>()(
         set((s) => ({ lodEnabled: b !== undefined ? b : !s.lodEnabled })),
       isBuildingLod: false,
       setIsBuildingLod: (b) => set({ isBuildingLod: b }),
+      forceSplatRegenerateEachFrame: false,
+      setForceSplatRegenerateEachFrame: (b) =>
+        set((s) => ({
+          forceSplatRegenerateEachFrame:
+            b !== undefined ? b : !s.forceSplatRegenerateEachFrame,
+        })),
+      vegetationThreshold: 0.15,
+      setVegetationThreshold: (n) => set({ vegetationThreshold: n }),
     }),
     {
       name: "viewer-storage",

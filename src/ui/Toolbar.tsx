@@ -41,6 +41,10 @@ export const Toolbar = ({
   const setMeshDeformation = useViewer((s) => s.setMeshDeformation);
   const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
   const setLodEnabled = useViewer((s) => s.setLodEnabled);
+  const setForceSplatRegenerateEachFrame = useViewer(
+    (s) => s.setForceSplatRegenerateEachFrame,
+  );
+  const setVegetationThreshold = useViewer((s) => s.setVegetationThreshold);
 
   const clearPoints = useMeasurement((s) => s.clearPoints);
 
@@ -60,6 +64,10 @@ export const Toolbar = ({
   const meshDeformation = useViewer((s) => s.meshDeformation);
   const cameraControlMode = useViewer((s) => s.cameraControlMode);
   const lodEnabled = useViewer((s) => s.lodEnabled);
+  const forceSplatRegenerateEachFrame = useViewer(
+    (s) => s.forceSplatRegenerateEachFrame,
+  );
+  const vegetationThreshold = useViewer((s) => s.vegetationThreshold);
   const isBuildingLod = useViewer((s) => s.isBuildingLod);
 
   const selectedModel = models.find((m) => m.modelUrl === modelUrl);
@@ -269,6 +277,36 @@ export const Toolbar = ({
                 onChange={() => setLodEnabled()}
                 className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium disabled:opacity-50"
               />
+            </div>
+          )}
+          {isSplatModel && (
+            <div className="flex items-center gap-2">
+              <label
+                className="text-white select-none ms-2 text-sm font-medium text-heading"
+                title="Forces a full shader recompile every frame so time-based effects (like the breathe animation) actually animate while the camera is still. Expect stutter."
+              >
+                Animate Splats (perf cost)
+              </label>
+              <input
+                type="checkbox"
+                checked={forceSplatRegenerateEachFrame}
+                onChange={() => setForceSplatRegenerateEachFrame()}
+                className="w-4 h-4 border border-default-medium rounded-xs bg-neutral-secondary-medium"
+              />
+            </div>
+          )}
+          {isSplatModel && (
+            <div className="flex items-center gap-2">
+              <div className="w-32">
+                <ControlSlider
+                  label="Vegetation Threshold"
+                  min={0}
+                  max={1}
+                  step={0.01}
+                  value={vegetationThreshold}
+                  onChange={setVegetationThreshold}
+                />
+              </div>
             </div>
           )}
           {cameraControlMode === "orbit" && (

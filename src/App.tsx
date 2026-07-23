@@ -1,4 +1,9 @@
-import { Canvas, type ThreeEvent } from "@react-three/fiber";
+import {
+  Canvas,
+  useFrame,
+  useThree,
+  type ThreeEvent,
+} from "@react-three/fiber";
 import { Model, type ModelFieldInfo } from "./components/Model";
 import {
   Environment,
@@ -69,7 +74,7 @@ import { CameraFocus } from "./components/CameraFocus";
 import { FrameOnLoad } from "./components/FrameOnLoad";
 import { InvalidateBridge } from "./components/InvalidateBridge";
 import { ModelSwitchConfirmDialog } from "./ui/ModelSwitchConfirmDialog";
-
+import { createSparkBreatheModifier } from "./utils/spark_Splat/breatheModifier";
 // What a requested model change actually is, regardless of which UI path
 // triggered it (picking from the list vs. uploading a new file) - kept
 // as a single shape so requestModelChange/applyModelChange don't need to
@@ -145,6 +150,43 @@ const DEFAULT_CONNECTIVITY_MULTIPLIER = 3.0;
 // emit controlstart/controlend at all (a documented limitation of the
 // underlying camera-controls library), so relying on those specifically
 // would leave scroll-zoom clicks unprotected.
+// Keeps frameloop="demand" rendering continuously while the breathe
+// modifier is active - same reasoning as StreamlineField's showAero-gated
+// invalidate loop. Spark's context.time (what the breathe's sin wave
+// reads) only advances on frames R3F actually renders, and "demand" mode
+// only renders in response to things like camera movement - without this
+// nudge the animation sits frozen except when the user happens to be
+// orbiting.
+//
+// invalidate() alone isn't enough, though: SparkRenderer.updateInternal
+// only re-runs generate() (the pass that actually re-evaluates
+// objectModifier/worldModifier into pixels) when the camera moved or the
+// mesh's generator version changed - a stationary camera just redraws the
+// same cached, stale buffer no matter how often render() fires.
+// forceRegenerateEachFrame closes that second gap by calling
+// updateGenerator() every frame, which bumps that version - see its own
+// comment on the store field for the real cost this carries (a full
+// shader recompile per frame, not a cheap refresh).
+function SplatShaderAnimationDriver({
+  active,
+  splatMesh,
+  forceRegenerateEachFrame,
+}: {
+  active: boolean;
+  splatMesh: SplatMesh | null;
+  forceRegenerateEachFrame: boolean;
+}) {
+  const invalidate = useThree((s) => s.invalidate);
+  useFrame(() => {
+    if (!active) return;
+    if (forceRegenerateEachFrame && splatMesh) {
+      splatMesh.updateGenerator();
+    }
+    invalidate();
+  });
+  return null;
+}
+
 function CameraActivityBridge({
   cameraControlsRef,
 }: {
@@ -222,6 +264,10 @@ function App() {
   const setCameraControlMode = useViewer((s) => s.setCameraControlMode);
   const lodEnabled = useViewer((s) => s.lodEnabled);
   const setIsBuildingLod = useViewer((s) => s.setIsBuildingLod);
+  const forceSplatRegenerateEachFrame = useViewer(
+    (s) => s.forceSplatRegenerateEachFrame,
+  );
+  const vegetationThreshold = useViewer((s) => s.vegetationThreshold);
   const isCameraMoving = useViewer((s) => s.isCameraMoving);
   // Same mechanism TextureCanvas.tsx already uses for its own imperative,
   // outside-of-React mutations - applySparkFloaterThreshold directly
@@ -750,6 +796,21 @@ function App() {
       });
   }, [lodEnabled, loadedSplatMesh]);
 
+  // Applies the breathing displacement to whichever splat is currently
+  // loaded, restricted to vegetation-colored splats - same reactive
+  // pattern as the lodEnabled effect above, so dragging the threshold
+  // slider in the Toolbar re-applies immediately rather than only taking
+  // effect on the next model load.
+  useEffect(() => {
+    if (!loadedSplatMesh) return;
+    loadedSplatMesh.objectModifier = createSparkBreatheModifier(
+      loadedSplatMesh,
+      { amplitude: 0.05, speed: 2, noiseAmplitude: 0.02 },
+      { threshold: vegetationThreshold, invert: false },
+    );
+    loadedSplatMesh.updateGenerator();
+  }, [loadedSplatMesh, vegetationThreshold]);
+
   // Disables SplatMesh's own raycasting while the camera is actively being
   // orbited/zoomed. Confirmed from source: SplatMesh.raycast()'s very
   // first line is `if (!this.raycastable || ...) return;` - a real,
@@ -1023,6 +1084,11 @@ function App() {
         )}
         <SparkFlyControls active={cameraControlMode === "fly"} />
         <InvalidateBridge />
+        <SplatShaderAnimationDriver
+          active={loadedSplatMesh !== null}
+          splatMesh={loadedSplatMesh}
+          forceRegenerateEachFrame={forceSplatRegenerateEachFrame}
+        />
         {cameraControlMode === "orbit" && (
           <CameraActivityBridge cameraControlsRef={cameraControlsRef} />
         )}
